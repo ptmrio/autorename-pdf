@@ -1,3 +1,4 @@
+from jellyfish import jaro_winkler_similarity
 import os
 from dotenv import load_dotenv
 import sys
@@ -10,6 +11,7 @@ import re
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
+openai_model = os.getenv("OPENAI_MODEL")
 my_company_name = os.getenv("MY_COMPANY_NAME")
 
 
@@ -39,12 +41,13 @@ def get_openai_response(text):
     while attempt < max_attempts:
         print(f'Attempt {attempt+1}/{max_attempts}')
         print('---------------------------------')
+
         print('PDF text (preview):')
         print({text[:1000]})
         print('---------------------------------')
 
         completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=openai_model,
             messages=[
                 {
                     "role": "system",
@@ -54,20 +57,21 @@ def get_openai_response(text):
                         "You will only return a JSON object with these properties only \"company_name\", \"document_date\", \"document_type\"." +
                         "No additional text and no formatting. Only the JSON object." +
                         "If the text language is German, assume a European date format (dd.mm.YYYY or dd/mm/YYYY or reverse) in the text. Return format: dd.mm.YYYY" +
-                        "Valid document types are: For Invoices use the term 'ER' only, nothing more. For all other documents, find a short descriptive summary/subject in german language." +
+                        "Valid document types are: For incoming invoices (invoices my company receives) use the term 'ER' only, nothing more. For outgoing invoices (invoices my company sends) use the term 'AR', nothing more." +
+                        "For all other documents, find a short descriptive summary/subject in german language." +
+                        "My company name is: \"" + my_company_name + "\", avoid using my company name as company_name in the response." +
                         "Here are three example responses for training purpose only:" +
-                        "{\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"ER\"} " +
-                        "{\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"Einzahlungsbestätigung\"} " +
-                        "{\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"Angebot\"}"
+                        "Example incoming invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"ER\"} " +
+                        "Example outgoing invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"AR\"} " +
+                        "Example document: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"Angebot\"}"
                 },
-                {"role": "user", "content": f"Extract the \"company_name\", \"document_date\", \"document_type\" from this PDF document and reply with a JSON object:\n\n{text}"},
+                {"role": "user", "content": f"Extract the \"company_name\", \"document_date\", \"document_type\" from this PDF document and return a JSON object:\n\n{text}"},
             ]
         )
 
         response = completion.choices[0].message["content"]
 
-        print('---------------------------------')
-        print('API Response:')
+        print('API Extract Response:')
         print(response)
         print('---------------------------------')
 
@@ -78,11 +82,11 @@ def get_openai_response(text):
                 document_date = json_response['document_date']
                 document_type = json_response['document_type']
 
-                date = dateparser.parse(document_date, settings={
-                                        'DATE_ORDER': 'DMY'
-                                        })
+                document_date = dateparser.parse(document_date, settings={
+                    'DATE_ORDER': 'DMY'
+                })
 
-                if (is_valid_filename(company_name) and is_valid_filename(document_type) and date):
+                if (is_valid_filename(company_name) and is_valid_filename(document_type) and document_date):
                     break
 
         except json.JSONDecodeError:
@@ -96,17 +100,49 @@ def get_openai_response(text):
     return json_response
 
 
+def harmonize_company_name(company_name):
+    company_name = company_name.strip()
+
+    if not os.path.exists("harmonized-company-names.json"):
+        print(
+            f'harmonized-company-names.json not found, using original name: {company_name}')
+        return company_name
+
+    with open("harmonized-company-names.json", "r") as file:
+        harmonized_names = json.load(file)
+
+    best_match = company_name
+    best_similarity = 0
+
+    for harmonized_name, synonyms in harmonized_names.items():
+        for synonym in synonyms:
+            similarity = jaro_winkler_similarity(
+                company_name.lower(), synonym.lower())
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = harmonized_name
+
+    confidence_threshold = 0.85
+    if best_similarity > confidence_threshold:
+        print(f'Using harmonized company name: {best_match}')
+        return best_match
+
+    print(
+        f'No harmonized company name found, using original name: {company_name}')
+    return company_name
+
+
 def parse_openai_response(response):
     company_name = response.get('company_name', 'Unknown')
-    date = dateparser.parse(response.get(
+    document_date = dateparser.parse(response.get(
         'document_date', '00000000'), settings={'DATE_ORDER': 'DMY'})
     document_type = response.get('document_type', 'Unknown')
 
-    return company_name, date, document_type
+    return company_name, document_date, document_type
 
 
-def rename_invoice(pdf_path, company_name, date, document_type):
-    base_name = f'{date.strftime("%Y%m%d")} {company_name} {document_type}'
+def rename_invoice(pdf_path, company_name, document_date, document_type):
+    base_name = f'{document_date.strftime("%Y%m%d")} {company_name} {document_type}'
     counter = 0
     new_name = base_name + '.pdf'
     new_path = os.path.join(os.path.dirname(pdf_path), new_name)
@@ -134,9 +170,11 @@ def process_folder(folder_path):
                 pdf_path = os.path.join(root, file)
                 text = pdf_to_text(pdf_path)
                 openai_response = get_openai_response(text)
-                company_name, date, document_type = parse_openai_response(
+                company_name, document_date, document_type = parse_openai_response(
                     openai_response)
-                rename_invoice(pdf_path, company_name, date, document_type)
+                company_name = harmonize_company_name(company_name)
+                rename_invoice(pdf_path, company_name,
+                               document_date, document_type)
 
 
 if __name__ == '__main__':
@@ -149,9 +187,10 @@ if __name__ == '__main__':
     if os.path.isfile(input_path) and input_path.lower().endswith('.pdf'):
         text = pdf_to_text(input_path)
         openai_response = get_openai_response(text)
-        company_name, date, document_type = parse_openai_response(
+        company_name, document_date, document_type = parse_openai_response(
             openai_response)
-        rename_invoice(input_path, company_name, date, document_type)
+        company_name = harmonize_company_name(company_name)
+        rename_invoice(input_path, company_name, document_date, document_type)
     elif os.path.isdir(input_path):
         process_folder(input_path)
     else:
