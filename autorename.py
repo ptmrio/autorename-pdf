@@ -43,7 +43,7 @@ def get_openai_response(text):
         print('---------------------------------')
 
         print('PDF text (preview):')
-        print({text[:1000]})
+        print({text[:100]})
         print('---------------------------------')
 
         completion = openai.ChatCompletion.create(
@@ -64,6 +64,7 @@ def get_openai_response(text):
                         "Example incoming invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"ER\"} " +
                         "Example outgoing invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"AR\"} " +
                         "Example document: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"Angebot\"}"
+                        "If date is unavailable: {\"company_name\": \"ACME\", \"document_date\": \"00.00.0000\", \"document_type\": \"Angebot\"}"
                 },
                 {"role": "user", "content": f"Extract the \"company_name\", \"document_date\", \"document_type\" from this PDF document and return a JSON object:\n\n{text}"},
             ]
@@ -81,10 +82,6 @@ def get_openai_response(text):
                 company_name = json_response['company_name']
                 document_date = json_response['document_date']
                 document_type = json_response['document_type']
-
-                document_date = dateparser.parse(document_date, settings={
-                    'DATE_ORDER': 'DMY'
-                })
 
                 if (is_valid_filename(company_name) and is_valid_filename(document_type) and document_date):
                     break
@@ -134,15 +131,34 @@ def harmonize_company_name(company_name):
 
 def parse_openai_response(response):
     company_name = response.get('company_name', 'Unknown')
-    document_date = dateparser.parse(response.get(
-        'document_date', '00000000'), settings={'DATE_ORDER': 'DMY'})
+
+    document_date = response.get('document_date', '00000000')
+    if document_date is None or document_date.strip() == '' or document_date.strip().lower() == 'unbekannt':
+        document_date = "00000000"
+
+    parsed_document_date = dateparser.parse(str(document_date), settings={
+        'DATE_ORDER': 'DMY'
+    })
+
+    if parsed_document_date is None:
+        document_date = dateparser.parse('00000000', settings={
+            'DATE_ORDER': 'DMY'
+        })
+    else:
+        document_date = parsed_document_date
+
     document_type = response.get('document_type', 'Unknown')
 
     return company_name, document_date, document_type
 
 
+
 def rename_invoice(pdf_path, company_name, document_date, document_type):
-    base_name = f'{document_date.strftime("%Y%m%d")} {company_name} {document_type}'
+    if document_date is not None:
+        base_name = f'{document_date.strftime("%Y%m%d")} {company_name} {document_type}'
+    else:
+        base_name = f'{company_name} {document_type}'
+
     counter = 0
     new_name = base_name + '.pdf'
     new_path = os.path.join(os.path.dirname(pdf_path), new_name)
