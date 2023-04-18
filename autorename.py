@@ -64,7 +64,7 @@ def get_openai_response(text):
                         "Example incoming invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"ER\"} " +
                         "Example outgoing invoice: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"AR\"} " +
                         "Example document: {\"company_name\": \"ACME\", \"document_date\": \"01.01.2021\", \"document_type\": \"Angebot\"}"
-                        "If date is unavailable: {\"company_name\": \"ACME\", \"document_date\": \"00.00.0000\", \"document_type\": \"Angebot\"}"
+                        "Example if date is unavailable: {\"company_name\": \"ACME\", \"document_date\": \"00.00.0000\", \"document_type\": \"Angebot\"}"
                 },
                 {"role": "user", "content": f"Extract the \"company_name\", \"document_date\", \"document_type\" from this PDF document and return a JSON object:\n\n{text}"},
             ]
@@ -105,7 +105,7 @@ def harmonize_company_name(company_name):
             f'harmonized-company-names.json not found, using original name: {company_name}')
         return company_name
 
-    with open("harmonized-company-names.json", "r") as file:
+    with open("harmonized-company-names.json", "r", encoding='utf-8') as file:
         harmonized_names = json.load(file)
 
     best_match = company_name
@@ -150,7 +150,6 @@ def parse_openai_response(response):
     document_type = response.get('document_type', 'Unknown')
 
     return company_name, document_date, document_type
-
 
 
 def rename_invoice(pdf_path, company_name, document_date, document_type):

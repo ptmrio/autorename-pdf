@@ -9,17 +9,22 @@ Installation
 To use AIAutoRename, you'll need Python 3.6 or later. You can download it from the [official Python website](https://www.python.org/downloads/) or the Microsoft Store.
 
 1.  Clone or download this repository and navigate to the root directory of the project in your terminal.
-    
-2.  Install the required packages using the `requirements.txt` file:
-    
 
-```
-pip install -r requirements.txt
-```
+    ```
+    git clone https://github.com/ptmrio/AIAutoRename.git
+    cd AIAutoRename
+    ```
+2.  Install the required python packages using the `requirements.txt` file:
 
-3.  Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/) for Windows by following the installation instructions on their GitHub page. During the installation process, ensure that the "Add tesseract to PATH" option is checked. This will automatically add Tesseract to your PATH environment variable.
+    ```
+    pip install -r requirements.txt
+    ```
+
+3.  Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/) for Windows by following the installation instructions on their GitHub page. After installation, add the folder of the installed Tesseract directory (typicalls `C:\Program Files\Tesseract-OCR`) to your PATH environment variable.
     
-4.  Download and install [poppler for Windows](https://github.com/oschwartz10612/poppler-windows). After installation, add the `bin` folder of the installed poppler directory to your PATH environment variable. Here's a [guide](https://www.architectryan.com/2018/03/17/add-to-the-path-on-windows-10/) on how to add directories to the PATH variable on Windows 10.
+4.  Download and extract [poppler for Windows](https://github.com/oschwartz10612/poppler-windows). After installation, add the `bin` folder (e.g. `C:\poppler\Library\bin`) of the installed poppler directory to your PATH environment variable.
+
+Here's a [guide](https://www.architectryan.com/2018/03/17/add-to-the-path-on-windows-10/) on how to add directories to the PATH variable on Windows 10.
     
 
 Configuration
@@ -33,7 +38,7 @@ OPENAI_MODEL=gpt-3.5-turbo
 MY_COMPANY_NAME=<your-company-name>
 ```
 
-Replace `<your-api-key>` with your OpenAI API key, which can be obtained from the [OpenAI website](https://platform.openai.com/docs/developer-quickstart/your-api-keys). Set `<your-company-name>` to your company's name. This information will help the OpenAI API to better understand the context and decide whether to use the sender or recipient of the PDF document.
+Replace `<your-api-key>` with your OpenAI API key, which can be obtained from the [OpenAI website](https://platform.openai.com/account/api-keys). Set `<your-company-name>` to your company's name. This information will help the OpenAI API to better understand the context and decide whether to use the sender or recipient of the PDF document.
 
 Usage
 -----
@@ -43,10 +48,10 @@ Usage
 To rename a single PDF file, run the following command in your terminal (cmd on Windows, terminal on Mac):
 
 ```
-python autorename.py path/to/invoice.pdf
+python autorename.py "C:\Users\username\Downloads\invoice123.pdf"
 ```
 
-Replace `path/to/invoice.pdf` with the path to your PDF file.
+Replace `C:\Users\username\Downloads\invoice123.pdf` with the path to your PDF file.
 
 **Example:**
 
@@ -57,21 +62,21 @@ Suppose your PDF file is named `invoice123.pdf` and is located in the `invoices`
 To rename all PDF files in a folder and its subfolders, run the following command in your terminal:
 
 ```
-python autorename.py path/to/folder
+python autorename.py "C:\Users\username\Downloads"
 ```
 
-Replace `path/to/folder` with the path to your folder (no trailing slash).
+Replace `C:\Users\username\Downloads` with the path to your folder (no trailing slash).
 
 **Example:**
 
-Suppose you have a folder named `invoices` on your desktop containing multiple PDF files. After running AIAutoRename on the folder, all PDF files within the folder and its subfolders will be renamed according to their content, such as document date, company name, and document type. For example, a file originally named `invoice123.pdf` might be renamed to `20220215 MegaCorp PO.pdf`, where `20220215` is the document date, `MegaCorp` is the company name, and `PO` is the document type (purchase order).
+Suppose you downloaded a batch of documents into your `Downloads` folder. After running AIAutoRename on the folder, all PDF files within the folder will be renamed according to their content, such as document date, company name, and document type. For example, a file originally named `invoice123.pdf` might be renamed to `20220215 MegaCorp PO.pdf`, where `20220215` is the document date, `MegaCorp` is the company name, and `PO` is the document type (purchase order).
 
 Contributing
 ------------
 
-We welcome contributions from everyone! If you find a bug or have a feature request, please open an issue on our [GitHub repository](https://github.com/example/AIAutoRename). If you'd like to contribute code, please open a pull request with your changes. We appreciate your support in making AIAutoRename even better!
+We welcome contributions from everyone! If you find a bug or have a feature request, please open an issue on our [GitHub repository](https://github.com/ptmrio/AIAutoRename). If you'd like to contribute code, please open a pull request with your changes. We appreciate your support in making AIAutoRename even better!
 
 Support
 -------
 
-If you encounter any issues or need assistance using AIAutoRename, please don't hesitate to reach out by opening an issue on our [GitHub repository](https://github.com/example/AIAutoRename). We'll do our best to help you as soon as possible.
+If you encounter any issues or need assistance using AIAutoRename, please don't hesitate to reach out by opening an issue on our [GitHub repository](https://github.com/ptmrio/AIAutoRename). We'll do our best to help you as soon as possible.
