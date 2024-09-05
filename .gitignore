@@ -1,2 +1,6 @@
+/build/
+/venv/
+/dist/harmonized-company-names.json
+/dist/.env
 .env
 harmonized-company-names.json

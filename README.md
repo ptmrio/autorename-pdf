@@ -1,82 +1,129 @@
-AIAutoRename
-============
+# autorename-pdf
 
-AIAutoRename is a Python script that automatically renames PDF files based on their content. It leverages the power of the OpenAI GPT Chat API to extract relevant information, such as the document date, company name, and document type, from the PDF's text. This tool is designed to simplify the organization and management of your PDF files by automating the renaming process.
+**autorename-pdf** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
 
-Installation
-------------
+---
 
-To use AIAutoRename, you'll need Python 3.6 or later. You can download it from the [official Python website](https://www.python.org/downloads/) or the Microsoft Store.
+## Features
 
-1.  Clone or download this repository and navigate to the root directory of the project in your terminal.
+- **Automatic PDF Renaming**: Extracts metadata from PDFs (company name, date, document type) and renames them accordingly.
+- **Organized Archiving**: Ensures consistency in document naming and file storage, streamlining archiving processes.
+- **Batch Processing**: Rename multiple PDFs within a folder in one go.
+- **Context Menu Integration**: Easily right-click on files or folders to trigger renaming actions.
+- **Powerful OCR Support**: Uses Tesseract and advanced AI via OpenAI for highly accurate text recognition from scanned PDFs.
 
+---
+
+## Installation Guide
+
+### Prerequisites
+
+Ensure you have the following installed on your system:
+
+1. **Python (OPTIONAL)**: Download and install the latest version of Python 3.x (preferably the latest version of Python 3, like 3.11):
+   ```powershell
+   winget install Python.Python
+   ```
+
+
+2. **Chocolatey**: Required for installing dependencies on Windows. Install it using PowerShell (run as administrator):
+   ```powershell
+   Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+   ```   
+
+2. **Tesseract OCR**: Required for extracting text from images in PDFs. Install it using winget (preferred):
+   ```powershell
+   choco install tesseract
+   ```
+
+3. **Poppler**: Required for converting PDF pages into images. Install via Chocolatey or manually:
+    ```powershell
+    choco install poppler
     ```
-    git clone https://github.com/ptmrio/AIAutoRename.git
-    cd AIAutoRename
-    ```
-2.  Install the required python packages using the `requirements.txt` file:
 
-    ```
-    pip install -r requirements.txt
-    ```
+### Setup Instructions
 
-3.  Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/) for Windows by following the installation instructions on their GitHub page. After installation, add the folder of the installed Tesseract directory (typicalls `C:\Program Files\Tesseract-OCR`) to your PATH environment variable.
-    
-4.  Download and extract [poppler for Windows](https://github.com/oschwartz10612/poppler-windows). After installation, add the `bin` folder (e.g. `C:\poppler\Library\bin`) of the installed poppler directory to your PATH environment variable.
+1. **Download or clone the Repository**:
+   ```cmd
+   git clone https://github.com/ptmrio/autorename-pdf.git
+   cd autorename-pdf
+   ```
 
-Here's a [guide](https://www.architectryan.com/2018/03/17/add-to-the-path-on-windows-10/) on how to add directories to the PATH variable on Windows 10.
-    
+2. **Edit the `.env` File**:
+   Configure your API key and company name by editing the `.env.example` file and move it into the dist folder as `.env.example`. Open it in any text editor and set the following:
+   - Add your OpenAI API key:
+     ```
+     OPENAI_API_KEY=your-api-key
+     ```
+   - Specify your preferred OpenAI model:
+     ```
+     OPENAI_MODEL=gpt-4o
+     ```
+   - Enter your company name (this prevents it from being extracted):
+     ```
+     MY_COMPANY_NAME=your-company-name
+     ```
+   Save the file as `.env` after making these changes.
 
-Configuration
--------------
+3. **Run the Context Menu Setup (Administrator Required)**:
+   The app includes pre-built executables, so no need to install dependencies. Simply add the app to your context menu by running the following command (make sure to **run as admin**):
+   ```cmd
+   add-to-context-menu.exe
+   ```
 
-AIAutoRename uses environment variables to configure the OpenAI API key and the name of your company. Before running the script, you'll need to create a file named `.env` in the root directory of the project and add the following lines:
+   This will add options to your right-click context menu for both individual PDFs and folders.
 
-```
-OPENAI_API_KEY=<your-api-key>
-OPENAI_MODEL=gpt-3.5-turbo
-MY_COMPANY_NAME=<your-company-name>
-```
+---
 
-Replace `<your-api-key>` with your OpenAI API key, which can be obtained from the [OpenAI website](https://platform.openai.com/account/api-keys). Set `<your-company-name>` to your company's name. This information will help the OpenAI API to better understand the context and decide whether to use the sender or recipient of the PDF document.
+## Usage
 
-Usage
------
+### Context Menu (Recommended)
 
-### Renaming a single PDF file
+After installation, autorename-pdf can be accessed by right-clicking files or folders:
 
-To rename a single PDF file, run the following command in your terminal (cmd on Windows, terminal on Mac):
+1. **Rename a Single PDF**: Right-click a PDF file and select `Auto Rename PDF` to automatically rename it.
+2. **Batch Rename PDFs in Folder**: Right-click a folder and choose `Auto Rename PDFs in Folder` to process all PDFs within.
+3. **Rename PDFs from Folder Background**: Right-click the background of a folder and select `Auto Rename PDFs in This Folder` to rename every PDF inside the folder.
 
-```
-python autorename.py "C:\Users\username\Downloads\invoice123.pdf"
-```
+### Command-Line Usage (Optional)
 
-Replace `C:\Users\username\Downloads\invoice123.pdf` with the path to your PDF file.
+If you prefer using the terminal, autorename-pdf can be executed as a command-line tool:
 
-**Example:**
+- **Rename a single PDF**:
+  ```bash
+  autorename-pdf.exe "C:\path\to\file.pdf"
+  ```
 
-Suppose your PDF file is named `invoice123.pdf` and is located in the `invoices` folder on your desktop. After running AIAutoRename, the file might be renamed to something like `20220101 ACME ER.pdf`, where `20220101` is the document date, `ACME` is the company name, and `ER` is the document type (incoming invoice).
+- **Rename all PDFs in a folder**:
+  ```bash
+  autorename-pdf.exe "C:\path\to\folder"
+  ```
 
-### Renaming all PDF files in a folder
+---
 
-To rename all PDF files in a folder and its subfolders, run the following command in your terminal:
+## Examples
 
-```
-python autorename.py "C:\Users\username\Downloads"
-```
+Here are some real-world examples of how autorename-pdf can simplify your file management:
 
-Replace `C:\Users\username\Downloads` with the path to your folder (no trailing slash).
+1. **Input**: `invoice_123.pdf`
+   **Output**: `20230901 ACME ER.pdf`
+   - Explanation: The file is renamed using the date `20230901` (1st September 2023), `ACME` as the company name, and `ER` for an incoming invoice.
 
-**Example:**
+2. **Input**: `payment_invoice.pdf`
+   **Output**: `20231015 XYZ AR.pdf`
+   - Explanation: The system extracts `20231015` (15th October 2023), `XYZ` as the company, and `AR` for an outgoing invoice.
 
-Suppose you downloaded a batch of documents into your `Downloads` folder. After running AIAutoRename on the folder, all PDF files within the folder will be renamed according to their content, such as document date, company name, and document type. For example, a file originally named `invoice123.pdf` might be renamed to `20220215 MegaCorp PO.pdf`, where `20220215` is the document date, `MegaCorp` is the company name, and `PO` is the document type (purchase order).
+3. **Batch Renaming**:
+   - **Input**: A folder containing `invoice1.pdf`, `invoice2.pdf`, `invoice3.pdf`.
+   - **Output**: Renamed files inside the folder as:
+     - `20230712 CompanyA ER.pdf`
+     - `20230713 CompanyB AR.pdf`
+     - `20230714 CompanyC ER.pdf`
 
-Contributing
-------------
+---
 
-We welcome contributions from everyone! If you find a bug or have a feature request, please open an issue on our [GitHub repository](https://github.com/ptmrio/AIAutoRename). If you'd like to contribute code, please open a pull request with your changes. We appreciate your support in making AIAutoRename even better!
+## Contribution and Support
 
-Support
--------
+We welcome contributions and feedback. If you have ideas or encounter issues, please submit a pull request or open an issue on [GitHub](https://github.com/ptmrio/autorename-pdf).
 
-If you encounter any issues or need assistance using AIAutoRename, please don't hesitate to reach out by opening an issue on our [GitHub repository](https://github.com/ptmrio/AIAutoRename). We'll do our best to help you as soon as possible.
+For any questions or support, please reach out through our GitHub page.
