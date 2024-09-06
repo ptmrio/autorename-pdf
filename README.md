@@ -15,30 +15,11 @@
 
 ---
 
-## Harmonized Company Names
-
-The **harmonized company names** feature allows you to convert AI-extracted company names into a standardized format. This is particularly useful when working with various company name variants, ensuring consistent naming conventions in the output. 
-
-For example:
-- **Input**: `ACME Corp`, `ACME Inc.`, `ACME Corporation`
-- **Output**: `ACME`
-
-This helps maintain uniformity in your archived files, improving searchability and organization. The harmonized company names are configured using a JSON file (`harmonized-company-names.json`), where you can map different variations of a company name to a standard name.
-
-### Example `harmonized-company-names.json`:
-
-```json
-{
-    "ACME": ["ACME Corp", "ACME Inc.", "ACME Corporation"],
-    "XYZ": ["XYZ Ltd", "XYZ LLC", "XYZ Enterprises"]
-}
-```
-
----
-
 ## Installation Guide
 
 ### Prerequisites
+
+*Note: The app is currently optimized for **German** language documents and output. A future update will include support for other languages and configurations.*
 
 Before starting, ensure the following:
 
@@ -48,13 +29,16 @@ Before starting, ensure the following:
 ### Setup Instructions
 
 1. **Download the Latest Release**:
+
    - Go to the [AutoRename-PDF GitHub Releases](https://github.com/ptmrio/autorename-pdf/releases) page.
    - Download the latest `.zip` file.
 
 2. **Extract the ZIP Folder**:
+
    - Extract the downloaded `.zip` file to your desired location.
 
 3. **Run the Setup Script**:
+
    - Open **PowerShell with Administrator Rights**.
    - Navigate to the extracted folder using the following command:
      ```powershell
@@ -66,13 +50,17 @@ Before starting, ensure the following:
      ```
 
 4. **Follow the Installation Steps**:
-   - The setup script will:
+
+   - The setup script will automatically:
      - Install **Chocolatey** if not already installed.
      - Install **Tesseract** and **Ghostscript** via Chocolatey.
+     - Download **German language data** for Tesseract.
      - Add AutoRenamePDF to the context menu for files and folders.
 
 5. **Restart Your Computer**:
    - After the installation, restart your computer to apply all context menu changes.
+
+**Troubleshooting**: Make sure Tesseract and Ghostscript got added to your system's PATH. If not, add `C:\Program Files\Tesseract-OCR` (typically) and `C:\Program Files\gs\gsVERSION_NUMBER\bin` (typically) to your system's PATH manually. Replace `VERSION_NUMBER` with the installed Ghostscript version. Also make sure to configure the `.env` file correctly (see below). If you still encounter any issues, please open the terminal and use `autorename-pdf` from the command line to see the error messages.
 
 ---
 
@@ -80,7 +68,8 @@ Before starting, ensure the following:
 
 The `.env` file must be properly filled out to configure the tool. Here's a breakdown of the required parameters:
 
-1. **`OPENAI_API_KEY`**: 
+1. **`OPENAI_API_KEY`**:
+
    - This is your API key for accessing OpenAI's services (like GPT-4).
    - You can obtain your OpenAI API key by signing up at [OpenAI](https://platform.openai.com/signup).
    - After signing up, navigate to the API section and generate a new API key. Copy this key and paste it into your `.env` file like this:
@@ -89,6 +78,7 @@ The `.env` file must be properly filled out to configure the tool. Here's a brea
      ```
 
 2. **`OPENAI_MODEL`**:
+
    - Specifies which OpenAI model to use for OCR and content extraction. You can use models like `gpt-3.5-turbo` or `gpt-4` for higher accuracy.
    - Example:
      ```plaintext
@@ -105,6 +95,7 @@ The `.env` file must be properly filled out to configure the tool. Here's a brea
 Make sure to save the `.env` file after making these changes.
 
 ### Example `.env` File:
+
 ```plaintext
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4
@@ -128,6 +119,7 @@ Once installed, autorename-pdf can be accessed through the right-click context m
 For command-line users, autorename-pdf can also be executed from the terminal:
 
 - **Rename a single PDF**:
+
   ```bash
   autorename-pdf.exe "C:\path\to\file.pdf"
   ```
@@ -137,6 +129,30 @@ For command-line users, autorename-pdf can also be executed from the terminal:
   autorename-pdf.exe "C:\path\to\folder"
   ```
 
+**Tipp**: Add the `autorename-pdf.exe` path to your system's PATH for easier access from the command line.
+
+---
+
+## Harmonized Company Names
+
+The **harmonized company names** feature allows you to convert AI-extracted company names into a standardized format. This is particularly useful when working with various company name variants, ensuring consistent naming conventions in the output.
+
+For example:
+
+- **Input**: `ACME Corp`, `ACME Inc.`, `ACME Corporation`
+- **Output**: `ACME`
+
+This helps maintain uniformity in your archived files, improving searchability and organization. The harmonized company names are configured using a JSON file (`harmonized-company-names.json`), where you can map different variations of a company name to a standard name.
+
+### Example `harmonized-company-names.json`:
+
+```json
+{
+  "ACME": ["ACME Corp", "ACME Inc.", "ACME Corporation"],
+  "XYZ": ["XYZ Ltd", "XYZ LLC", "XYZ Enterprises"]
+}
+```
+
 ---
 
 ## Examples
@@ -145,10 +161,12 @@ Here are some real-world examples of how autorename-pdf can simplify your file m
 
 1. **Input**: `invoice_123.pdf`
    **Output**: `20230901 ACME ER.pdf`
+
    - Explanation: The file is renamed using the date `20230901` (1st September 2023), `ACME` as the company name, and `ER` for an incoming invoice.
 
 2. **Input**: `payment_invoice.pdf`
    **Output**: `20231015 XYZ AR.pdf`
+
    - Explanation: The system extracts `20231015` (15th October 2023), `XYZ` as the company, and `AR` for an outgoing invoice.
 
 3. **Batch Renaming**:
