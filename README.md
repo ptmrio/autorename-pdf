@@ -1,6 +1,6 @@
 # autorename-pdf
 
-**autorename-pdf** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
+**autorename-pdf** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR and AI technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
 
 ---
 
@@ -11,6 +11,28 @@
 - **Batch Processing**: Rename multiple PDFs within a folder in one go.
 - **Context Menu Integration**: Easily right-click on files or folders to trigger renaming actions.
 - **Powerful OCR Support**: Uses Tesseract and advanced AI via OpenAI for highly accurate text recognition from scanned PDFs.
+- **Harmonized Company Names**: Converts extracted company names into a standardized format using a pre-defined mapping.
+
+---
+
+## Harmonized Company Names
+
+The **harmonized company names** feature allows you to convert AI-extracted company names into a standardized format. This is particularly useful when working with various company name variants, ensuring consistent naming conventions in the output. 
+
+For example:
+- **Input**: `ACME Corp`, `ACME Inc.`, `ACME Corporation`
+- **Output**: `ACME`
+
+This helps maintain uniformity in your archived files, improving searchability and organization. The harmonized company names are configured using a JSON file (`harmonized-company-names.json`), where you can map different variations of a company name to a standard name.
+
+### Example `harmonized-company-names.json`:
+
+```json
+{
+    "ACME": ["ACME Corp", "ACME Inc.", "ACME Corporation"],
+    "XYZ": ["XYZ Ltd", "XYZ LLC", "XYZ Enterprises"]
+}
+```
 
 ---
 
@@ -18,60 +40,76 @@
 
 ### Prerequisites
 
-Ensure you have the following installed on your system:
+Before starting, ensure the following:
 
-1. **Python (OPTIONAL)**: Download and install the latest version of Python 3.x (preferably the latest version of Python 3, like 3.11):
-   ```powershell
-   winget install Python.Python
-   ```
-
-
-2. **Chocolatey**: Required for installing dependencies on Windows. Install it using PowerShell (run as administrator):
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-   ```   
-
-2. **Tesseract OCR**: Required for extracting text from images in PDFs. Install it using winget (preferred):
-   ```powershell
-   choco install tesseract
-   ```
-
-3. **Poppler**: Required for converting PDF pages into images. Install via Chocolatey or manually:
-    ```powershell
-    choco install poppler
-    ```
+- **Administrator Rights**: You must run the setup as an administrator for successful installation.
+- **Chocolatey, Tesseract, and Ghostscript**: These will be automatically installed if not already present.
 
 ### Setup Instructions
 
-1. **Download or clone the Repository**:
-   ```cmd
-   git clone https://github.com/ptmrio/autorename-pdf.git
-   cd autorename-pdf
-   ```
+1. **Download the Latest Release**:
+   - Go to the [AutoRename-PDF GitHub Releases](https://github.com/ptmrio/autorename-pdf/releases) page.
+   - Download the latest `.zip` file.
 
-2. **Edit the `.env` File**:
-   Configure your API key and company name by editing the `.env.example` file and move it into the dist folder as `.env.example`. Open it in any text editor and set the following:
-   - Add your OpenAI API key:
-     ```
-     OPENAI_API_KEY=your-api-key
-     ```
-   - Specify your preferred OpenAI model:
-     ```
-     OPENAI_MODEL=gpt-4o
-     ```
-   - Enter your company name (this prevents it from being extracted):
-     ```
-     MY_COMPANY_NAME=your-company-name
-     ```
-   Save the file as `.env` after making these changes.
+2. **Extract the ZIP Folder**:
+   - Extract the downloaded `.zip` file to your desired location.
 
-3. **Run the Context Menu Setup (Administrator Required)**:
-   The app includes pre-built executables, so no need to install dependencies. Simply add the app to your context menu by running the following command (make sure to **run as admin**):
-   ```cmd
-   add-to-context-menu.exe
-   ```
+3. **Run the Setup Script**:
+   - Open **PowerShell with Administrator Rights**.
+   - Navigate to the extracted folder using the following command:
+     ```powershell
+     cd "C:\path\to\extracted\folder"
+     ```
+   - Run the setup script:
+     ```powershell
+     PowerShell -ExecutionPolicy Bypass -File .\setup.ps1
+     ```
 
-   This will add options to your right-click context menu for both individual PDFs and folders.
+4. **Follow the Installation Steps**:
+   - The setup script will:
+     - Install **Chocolatey** if not already installed.
+     - Install **Tesseract** and **Ghostscript** via Chocolatey.
+     - Add AutoRenamePDF to the context menu for files and folders.
+
+5. **Restart Your Computer**:
+   - After the installation, restart your computer to apply all context menu changes.
+
+---
+
+## Configuration: Filling the `.env` File
+
+The `.env` file must be properly filled out to configure the tool. Here's a breakdown of the required parameters:
+
+1. **`OPENAI_API_KEY`**: 
+   - This is your API key for accessing OpenAI's services (like GPT-4).
+   - You can obtain your OpenAI API key by signing up at [OpenAI](https://platform.openai.com/signup).
+   - After signing up, navigate to the API section and generate a new API key. Copy this key and paste it into your `.env` file like this:
+     ```plaintext
+     OPENAI_API_KEY=your-openai-api-key
+     ```
+
+2. **`OPENAI_MODEL`**:
+   - Specifies which OpenAI model to use for OCR and content extraction. You can use models like `gpt-3.5-turbo` or `gpt-4` for higher accuracy.
+   - Example:
+     ```plaintext
+     OPENAI_MODEL=gpt-4
+     ```
+
+3. **`MY_COMPANY_NAME`**:
+   - This is your company name, which prevents the AI from extracting it repeatedly if it's a constant in your documents.
+   - Example:
+     ```plaintext
+     MY_COMPANY_NAME=YourCompany
+     ```
+
+Make sure to save the `.env` file after making these changes.
+
+### Example `.env` File:
+```plaintext
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_MODEL=gpt-4
+MY_COMPANY_NAME=YourCompany
+```
 
 ---
 
@@ -79,7 +117,7 @@ Ensure you have the following installed on your system:
 
 ### Context Menu (Recommended)
 
-After installation, autorename-pdf can be accessed by right-clicking files or folders:
+Once installed, autorename-pdf can be accessed through the right-click context menu:
 
 1. **Rename a Single PDF**: Right-click a PDF file and select `Auto Rename PDF` to automatically rename it.
 2. **Batch Rename PDFs in Folder**: Right-click a folder and choose `Auto Rename PDFs in Folder` to process all PDFs within.
@@ -87,7 +125,7 @@ After installation, autorename-pdf can be accessed by right-clicking files or fo
 
 ### Command-Line Usage (Optional)
 
-If you prefer using the terminal, autorename-pdf can be executed as a command-line tool:
+For command-line users, autorename-pdf can also be executed from the terminal:
 
 - **Rename a single PDF**:
   ```bash

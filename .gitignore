@@ -1,6 +1,10 @@
+/__pycache__/
 /build/
+/dist/
 /venv/
 /dist/harmonized-company-names.json
 /dist/.env
+build.py
 .env
 harmonized-company-names.json
+autorename-pdf-release.zip
