@@ -1,12 +1,13 @@
-# autorename-pdf
+# AutoRename-PDF
 
-**autorename-pdf** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR and AI technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
+**AutoRename-PDF** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR and AI technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
 
 ---
 
 ## Features
 
 - **Automatic PDF Renaming**: Extracts metadata from PDFs (company name, date, document type) and renames them accordingly.
+- **Customizable Output Format**: Configure date formats, language preferences, and document type abbreviations to suit your needs.
 - **Organized Archiving**: Ensures consistency in document naming and file storage, streamlining archiving processes.
 - **Batch Processing**: Rename multiple PDFs within a folder in one go.
 - **Context Menu Integration**: Easily right-click on files or folders to trigger renaming actions.
@@ -15,11 +16,93 @@
 
 ---
 
+## Configuration: Filling the `.env` File
+
+The `.env` file must be properly filled out to configure the tool. Below is a breakdown of all the parameters you can set:
+
+### Required Parameters
+
+1. **`OPENAI_API_KEY`**:
+
+   - Your API key for accessing OpenAI's services (like GPT-4).
+   - You can obtain your OpenAI API key by signing up at [OpenAI](https://platform.openai.com/signup).
+   - After signing up, navigate to the API section and generate a new API key. Copy this key and paste it into your `.env` file:
+     ```plaintext
+     OPENAI_API_KEY=your-openai-api-key
+     ```
+
+2. **`OPENAI_MODEL`**:
+
+   - Specifies which OpenAI model to use for OCR and content extraction. Options include `gpt-3.5-turbo` or `gpt-4`.
+   - Example:
+     ```plaintext
+     OPENAI_MODEL=gpt-4o
+     ```
+
+3. **`MY_COMPANY_NAME`**:
+
+   - Your company name, which prevents the AI from extracting it repeatedly if it's a constant in your documents.
+   - Example:
+     ```plaintext
+     MY_COMPANY_NAME=YourCompany
+     ```
+
+4. **`PDF_OUTGOING_INVOICE`**:
+
+   - Default abbreviation for outgoing invoices (e.g., `EARNING`).
+   - Example:
+     ```plaintext
+     PDF_OUTGOING_INVOICE=EARNING
+     ```
+
+5. **`PDF_INCOMING_INVOICE`**:
+
+   - Default abbreviation for incoming invoices (e.g., `INVOICE`).
+   - Example:
+     ```plaintext
+     PDF_INCOMING_INVOICE=INVOICE
+     ```
+
+6. **`OUTPUT_LANGUAGE`**:
+
+   - The main language of most of the PDFs, used to optimize AI prompts.
+   - Example:
+     ```plaintext
+     OUTPUT_LANGUAGE=English
+     ```
+
+7. **`OUTPUT_DATE_FORMAT`**:
+
+   - Date format for the output file name, following [strftime](https://strftime.org/) conventions.
+   - Example (for YYYYMMDD format):
+     ```plaintext
+     OUTPUT_DATE_FORMAT=%Y%m%d
+     ```
+
+8. **`PROMPT_EXTENSION`**:
+
+   - Optional instructions to fine-tune the AI prompt that extracts the invoice details.
+   - Example:
+     ```plaintext
+     PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "EARNING 12,34" or "INVOICE 56,78".
+     ```
+
+9. **`OCR_LANGUAGES`**:
+
+   - Comma-separated list of 3-letter language codes for Tesseract OCR. Ensure the appropriate language data is installed.
+   - **Note**: You need to re-run the setup script after changing this parameter to download the required language data.
+   - Example (for German and English):
+     ```plaintext
+     OCR_LANGUAGES=deu,eng
+     ```
+
+Make sure to save the `.env` file after making these changes.
+
+---
+
 ## Installation Guide
 
 ### Prerequisites
-
-*Note: The app is currently optimized for **German** language documents and output. A future update will include support for other languages and configurations.*
 
 Before starting, ensure the following:
 
@@ -54,52 +137,26 @@ Before starting, ensure the following:
    - The setup script will automatically:
      - Install **Chocolatey** if not already installed.
      - Install **Tesseract** and **Ghostscript** via Chocolatey.
-     - Download **German language data** for Tesseract.
-     - Add AutoRenamePDF to the context menu for files and folders.
+     - Download **language data** for Tesseract as specified in your configuration.
+     - Add AutoRename-PDF to the context menu for files and folders.
 
 5. **Restart Your Computer**:
    - After the installation, restart your computer to apply all context menu changes.
 
-**Troubleshooting**: Make sure Tesseract and Ghostscript got added to your system's PATH. If not, add `C:\Program Files\Tesseract-OCR` (typically) and `C:\Program Files\gs\gsVERSION_NUMBER\bin` (typically) to your system's PATH manually. Replace `VERSION_NUMBER` with the installed Ghostscript version. Also make sure to configure the `.env` file correctly (see below). If you still encounter any issues, please open the terminal and use `autorename-pdf` from the command line to see the error messages.
-
----
-
-## Configuration: Filling the `.env` File
-
-The `.env` file must be properly filled out to configure the tool. Here's a breakdown of the required parameters:
-
-1. **`OPENAI_API_KEY`**:
-
-   - This is your API key for accessing OpenAI's services (like GPT-4).
-   - You can obtain your OpenAI API key by signing up at [OpenAI](https://platform.openai.com/signup).
-   - After signing up, navigate to the API section and generate a new API key. Copy this key and paste it into your `.env` file like this:
-     ```plaintext
-     OPENAI_API_KEY=your-openai-api-key
-     ```
-
-2. **`OPENAI_MODEL`**:
-
-   - Specifies which OpenAI model to use for OCR and content extraction. You can use models like `gpt-3.5-turbo` or `gpt-4` for higher accuracy.
-   - Example:
-     ```plaintext
-     OPENAI_MODEL=gpt-4
-     ```
-
-3. **`MY_COMPANY_NAME`**:
-   - This is your company name, which prevents the AI from extracting it repeatedly if it's a constant in your documents.
-   - Example:
-     ```plaintext
-     MY_COMPANY_NAME=YourCompany
-     ```
-
-Make sure to save the `.env` file after making these changes.
+**Troubleshooting**: Make sure Tesseract and Ghostscript got added to your system's PATH. If not, add `C:\Program Files\Tesseract-OCR` (typically) and `C:\Program Files\gs\gsVERSION_NUMBER\bin` (typically) to your system's PATH manually. Replace `VERSION_NUMBER` with the installed Ghostscript version. Also, ensure to configure the `.env` file correctly (see below). If you still encounter any issues, please open the terminal and use `autorename-pdf` from the command line to see the error messages.
 
 ### Example `.env` File:
 
 ```plaintext
 OPENAI_API_KEY=your-openai-api-key
-OPENAI_MODEL=gpt-4
+OPENAI_MODEL=gpt-4o
 MY_COMPANY_NAME=YourCompany
+PDF_OUTGOING_INVOICE=EARNING
+PDF_INCOMING_INVOICE=INVOICE
+OUTPUT_LANGUAGE=English
+OUTPUT_DATE_FORMAT=%Y%m%d
+PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".
+OCR_LANGUAGES=eng,deu
 ```
 
 ---
@@ -108,7 +165,7 @@ MY_COMPANY_NAME=YourCompany
 
 ### Context Menu (Recommended)
 
-Once installed, autorename-pdf can be accessed through the right-click context menu:
+Once installed, AutoRename-PDF can be accessed through the right-click context menu:
 
 1. **Rename a Single PDF**: Right-click a PDF file and select `Auto Rename PDF` to automatically rename it.
 2. **Batch Rename PDFs in Folder**: Right-click a folder and choose `Auto Rename PDFs in Folder` to process all PDFs within.
@@ -116,7 +173,7 @@ Once installed, autorename-pdf can be accessed through the right-click context m
 
 ### Command-Line Usage (Optional)
 
-For command-line users, autorename-pdf can also be executed from the terminal:
+For command-line users, AutoRename-PDF can also be executed from the terminal:
 
 - **Rename a single PDF**:
 
@@ -129,7 +186,7 @@ For command-line users, autorename-pdf can also be executed from the terminal:
   autorename-pdf.exe "C:\path\to\folder"
   ```
 
-**Tipp**: Add the `autorename-pdf.exe` path to your system's PATH for easier access from the command line.
+**Tip**: Add the `autorename-pdf.exe` path to your system's PATH for easier access from the command line.
 
 ---
 
@@ -157,19 +214,42 @@ This helps maintain uniformity in your archived files, improving searchability a
 
 ## Examples
 
-Here are some real-world examples of how autorename-pdf can simplify your file management:
+Here are some real-world examples of how AutoRename-PDF can simplify your file management:
 
-1. **Input**: `invoice_123.pdf`
-   **Output**: `20230901 ACME ER.pdf`
+1. **Standard Renaming**:
 
-   - Explanation: The file is renamed using the date `20230901` (1st September 2023), `ACME` as the company name, and `ER` for an incoming invoice.
+   - **Input**: `invoice_123.pdf`
+   - **Output**: `20230901 ACME ER.pdf`
+   - **Explanation**: The file is renamed using the date `20230901` (1st September 2023), `ACME` as the company name, and `ER` for an incoming invoice.
 
-2. **Input**: `payment_invoice.pdf`
-   **Output**: `20231015 XYZ AR.pdf`
+2. **Outgoing Invoice with Custom Abbreviation**:
 
-   - Explanation: The system extracts `20231015` (15th October 2023), `XYZ` as the company, and `AR` for an outgoing invoice.
+   - **Input**: `payment_invoice.pdf`
+   - **Output**: `20231015 XYZ AR.pdf`
+   - **Explanation**: The system extracts `20231015` (15th October 2023), `XYZ` as the company, and `AR` for an outgoing invoice.
 
-3. **Batch Renaming**:
+3. **Including Total Amount in Document Type**:
+
+   - With the `PROMPT_EXTENSION` configured to include the total amount:
+     ```plaintext
+     PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".
+     ```
+   - **Input**: `invoice_456.pdf`
+   - **Output**: `20230905 ACME ER 56,78.pdf`
+   - **Explanation**: The total amount `56,78` is appended to the document type `ER`.
+
+4. **Custom Date Format**:
+
+   - With `OUTPUT_DATE_FORMAT` set to include dashes:
+     ```plaintext
+     OUTPUT_DATE_FORMAT=%Y-%m-%d
+     ```
+   - **Input**: `invoice_789.pdf`
+   - **Output**: `2023-09-10 ACME ER.pdf`
+   - **Explanation**: The date is formatted as `YYYY-MM-DD`.
+
+5. **Batch Renaming**:
+
    - **Input**: A folder containing `invoice1.pdf`, `invoice2.pdf`, `invoice3.pdf`.
    - **Output**: Renamed files inside the folder as:
      - `20230712 CompanyA ER.pdf`
