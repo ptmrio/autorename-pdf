@@ -14,6 +14,8 @@ import fitz  # PyMuPDF
 import tempfile
 import traceback
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+import ctypes
 
 # Constants
 PDF_EXTENSION = ".pdf"
@@ -23,10 +25,9 @@ CONFIDENCE_THRESHOLD = 0.85
 
 client = None
 
-if getattr(sys, 'frozen', False):
-    current_directory = os.path.dirname(sys.executable)  # Path to the folder containing the .exe
-else:
-    current_directory = os.path.dirname(os.path.abspath(__file__))  # Path to the script file
+def set_env_vars(env_vars):
+    for key, value in env_vars.items():
+        os.environ[key] = value
 
 def initialize_openai_client(api_key):
     global client
@@ -37,8 +38,7 @@ class DocumentResponse(BaseModel):
     document_date: str = Field(..., description="Date of the document in format dd.mm.yyyy")
     document_type: str = Field(..., description="Type of the document (ER, AR, etc.)")
 
-
-def is_valid_filename(filename: str) -> bool:
+def is_valid_filename(filename: str) -> bool:    
     forbidden_chars = r'[<>:"/\\|?*]'
     
     if re.search(forbidden_chars, filename):
@@ -52,7 +52,6 @@ def is_valid_filename(filename: str) -> bool:
     
     return True
 
-
 def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
     """Process PDF: always run OCR first, then extract text using PyMuPDF."""
     all_text = ""
@@ -62,13 +61,15 @@ def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             temp_path = temp_file.name
         
+        ocr_languages = os.getenv('OCR_LANGUAGES', 'eng,deu').split(',')
+        
         try:
             ocrmypdf.ocr(
                 pdf_path, 
                 temp_path, 
                 force_ocr=True,
                 pages=f"{start_page}-{end_page}",
-                language=['eng', 'deu'],
+                language=ocr_languages,
                 invalidate_digital_signatures=True
             )
         except ocrmypdf_exceptions.PriorOcrFoundError:
@@ -96,7 +97,6 @@ def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
     
     return all_text.strip()
 
-
 def process_text_with_openai(text: str) -> Dict[str, str]:
     """Process the extracted text with OpenAI API."""
     global client
@@ -109,17 +109,21 @@ def process_text_with_openai(text: str) -> Dict[str, str]:
             messages=[
                 {
                     "role": "system", 
-                    "content": "You will extract the company name, document date, and document type from the following PDF text. " +
-                        "Adhere to the following JSON format: company_name, document_date, document_type. " +
-                        "No additional text and no formatting. Only the JSON object." +
-                        "Due to the nature of OCR Text detection, the text will be very noisy and might contain spelling errors, handle those as good as possible." +
-                        "For the company_name you always strip the legal form (e.U., SARL, GmbH, AG, Lmt, Limited etc.)" +
-                        "If the text language is German, assume a European date format (dd.mm.YYYY or dd/mm/YYYY or reverse) in the provided text. Return format: dd.mm.YYYY" +
-                        "Valid document types are: For incoming invoices (invoices my company receives) use the term 'ER' only, nothing more. For outgoing invoices (invoices my company sends) use the term 'AR', nothing more." +
-                        "For all other documents, find a short descriptive summary/subject in german language." +
-                        "If a value is not found, leave it empty." +
-                        f"My company name is: \"{os.getenv('MY_COMPANY_NAME')}\", avoid using my company name as company_name in the response."
-                 },
+                    "content": 
+                        "You will extract the company name, document date, and document type from the following PDF text. Due to the nature of OCR Text detection, the text will be very noisy and might contain spelling and detection errors, handle those as good as possible." + "\n\n" +
+                    
+                        f"document_date: Find the most appropriate date (e.g. the invoice date) and assume the correct Date Format according to the language and location of the document. Return format must be: dd.mm.YYYY" + "\n\n" +
+                        
+                        f"company_name: Find the name of the company that is the corresponding party of the document. My company name is: \"{os.getenv('MY_COMPANY_NAME')}\", avoid using my company name as company_name in the response. For the company_name you always strip the legal form (e.U., SARL, GmbH, AG, Lmt, Limited etc.)" + "\n\n" +
+                        
+                        f"document_type: Find the best matching type of the document. Valid document types are: For incoming invoices (invoices my company receives) use the term '{os.getenv('PDF_INCOMING_INVOICE', 'ER')}' only, nothing more. For outgoing invoices (invoices my company sends) use the term '{os.getenv('PDF_OUTGOING_INVOICE', 'AR')}', nothing more. For all other documents, find a short descriptive summary/subject in {os.getenv('OUTPUT_LANGUAGE', 'German')} language." + "\n\n" +
+                        
+                        "If a value is not found, leave it empty." + "\n\n" +
+                        
+                        "Output - adhere to the following JSON format: company_name, document_date, document_type. No additional text and no formatting. Only the JSON object." +
+                        
+                        os.getenv("PROMPT_EXTENSION", "")
+                },
                 {"role": "user", "content": f"Extract the information from the text:\n\n{text}"}
             ],
             response_format={ "type": "json_object" }
@@ -146,7 +150,6 @@ def process_text_with_openai(text: str) -> Dict[str, str]:
         logging.error(f"Error during OpenAI API call: {e}")
     
     return {"company_name": UNKNOWN_VALUE, "document_date": DEFAULT_DATE, "document_type": UNKNOWN_VALUE}
-
 
 def harmonize_company_name(company_name: str, json_path: str) -> str:
     """Harmonize company name based on predefined mappings."""
@@ -183,10 +186,21 @@ def parse_openai_response(response: Dict[str, str]) -> Tuple[str, Optional[datet
 
     return company_name, parsed_date, document_type
 
+def attempt_to_close_file(file_path: str) -> None:
+    """Attempt to close the file if it's open (Windows-specific)."""
+    if sys.platform == "win32":
+        try:
+            # Convert the file path to a wide character string
+            file_path_wide = ctypes.c_wchar_p(file_path)
+            # Attempt to close the file handle
+            ctypes.windll.kernel32.CloseHandle(file_path_wide)
+        except Exception as e:
+            logging.warning(f"Failed to close file handle for {file_path}: {str(e)}")
+
 def rename_invoice(pdf_path: str, company_name: str, document_date: Optional[datetime.date], document_type: str) -> None:
     """Rename the document based on extracted information."""
     if document_date:
-        base_name = f'{document_date.strftime("%Y%m%d")} {company_name} {document_type}'
+        base_name = f'{document_date.strftime(os.getenv("OUTPUT_DATE_FORMAT", "%Y%m%d"))} {company_name} {document_type}'
     else:
         base_name = f'{company_name} {document_type}'
 
@@ -204,6 +218,9 @@ def rename_invoice(pdf_path: str, company_name: str, document_date: Optional[dat
         new_path = os.path.join(os.path.dirname(pdf_path), new_name)
 
     try:
+        # Attempt to close the file before renaming
+        attempt_to_close_file(pdf_path)
+        
         os.rename(pdf_path, new_path)
         logging.info(f'Document renamed to: {new_name}')
     except Exception as e:
@@ -213,6 +230,7 @@ def process_pdf(pdf_path: str, json_path: str) -> None:
     """Process a single PDF file."""
     logging.info("---")
     logging.info(f"Processing {pdf_path}")
+    
     try:
         extracted_text = pdf_to_text(pdf_path)
         if not extracted_text:

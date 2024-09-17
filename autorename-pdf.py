@@ -2,8 +2,7 @@ import os
 import sys
 import logging
 from dotenv import load_dotenv
-from pdf_processor import process_pdf, PDF_EXTENSION, initialize_openai_client
-
+from pdf_processor import process_pdf, PDF_EXTENSION, initialize_openai_client, set_env_vars
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,17 +21,32 @@ json_path = os.path.join(current_directory, 'harmonized-company-names.json')
 
 # Load environment variables from the .env file
 load_dotenv(env_path)
+env_vars = {
+    'OPENAI_MODEL': os.getenv('OPENAI_MODEL'),
+    'OCR_LANGUAGES': os.getenv('OCR_LANGUAGES'),
+    'OUTPUT_LANGUAGE': os.getenv('OUTPUT_LANGUAGE'),
+    'PDF_INCOMING_INVOICE': os.getenv('PDF_INCOMING_INVOICE'),
+    'PDF_OUTGOING_INVOICE': os.getenv('PDF_OUTGOING_INVOICE'),
+    'MY_COMPANY_NAME': os.getenv('MY_COMPANY_NAME'),
+    'OUTPUT_DATE_FORMAT': os.getenv('OUTPUT_DATE_FORMAT'),
+    'PROMPT_EXTENSION': os.getenv('PROMPT_EXTENSION'),
+}
+
+set_env_vars(env_vars)
+
 
 # Initialize OpenAI client
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     logging.error("OPENAI_API_KEY not found in environment variables.")
     sys.exit(1)
+    
+
 
 initialize_openai_client(openai_api_key)
 
 def process_input(input_paths):
-    """Process multiple input paths, which can be files or folders."""
+    """Process multiple input paths, which can be files or folders (non-recursively)."""
     for input_path in input_paths:
         if os.path.isfile(input_path):
             if input_path.lower().endswith(PDF_EXTENSION):
@@ -40,10 +54,10 @@ def process_input(input_paths):
             else:
                 logging.warning(f"{input_path} is not a valid PDF.")
         elif os.path.isdir(input_path):
-            for root, _, files in os.walk(input_path):
-                for file in files:
-                    if file.lower().endswith(PDF_EXTENSION):
-                        process_pdf(os.path.join(root, file), json_path)
+            for file in os.listdir(input_path):
+                file_path = os.path.join(input_path, file)
+                if os.path.isfile(file_path) and file.lower().endswith(PDF_EXTENSION):
+                    process_pdf(file_path, json_path)
         else:
             logging.error(f"{input_path} is not a valid file or folder.")
 
@@ -54,3 +68,6 @@ if __name__ == "__main__":
 
     input_paths = sys.argv[1:]
     process_input(input_paths)
+    
+    # Prevent the executable from closing immediately
+    input("Press Enter to exit...")
