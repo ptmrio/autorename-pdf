@@ -3,6 +3,7 @@ import sys
 import logging
 from dotenv import load_dotenv
 from pdf_processor import process_pdf, PDF_EXTENSION, initialize_openai_client, set_env_vars
+from pdf_processor import initialize_privateai_client, test_parser
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,26 +31,37 @@ env_vars = {
     'MY_COMPANY_NAME': os.getenv('MY_COMPANY_NAME'),
     'OUTPUT_DATE_FORMAT': os.getenv('OUTPUT_DATE_FORMAT'),
     'PROMPT_EXTENSION': os.getenv('PROMPT_EXTENSION'),
-}
+    'PRIVATEAI_ENABLED': os.getenv('PRIVATEAI_ENABLED'),
+    'PRIVATEAI_SCHEME': os.getenv('PRIVATEAI_SCHEME'),
+    'PRIVATEAI_HOST': os.getenv('PRIVATEAI_HOST'),
+    'PRIVATEAI_PORT': os.getenv('PRIVATEAI_PORT'),
+    'PRIVATEAI_TIMEOUT': os.getenv('PRIVATEAI_TIMEOUT'),
+    'PRIVATEAI_POST_PROCESSOR': os.getenv('PRIVATEAI_POST_PROCESSOR'),
+ }
 
 set_env_vars(env_vars)
 
 
 # Initialize OpenAI client
 openai_api_key = os.getenv("OPENAI_API_KEY")
-if not openai_api_key:
+privateai_enabled = os.getenv("PRIVATEAI_ENABLED",False)
+if not openai_api_key and not privateai_enabled:
     logging.error("OPENAI_API_KEY not found in environment variables.")
     sys.exit(1)
     
-
-
-initialize_openai_client(openai_api_key)
+# load the api client and make it available as global
+if privateai_enabled:
+    logging.info(f"PrivateAI client Enabled: %s" % privateai_enabled)
+    initialize_privateai_client()
+else:
+    initialize_openai_client(openai_api_key)
 
 def process_input(input_paths):
     """Process multiple input paths, which can be files or folders (non-recursively)."""
     for input_path in input_paths:
         if os.path.isfile(input_path):
             if input_path.lower().endswith(PDF_EXTENSION):
+                test_parser()
                 process_pdf(input_path, json_path)
             else:
                 logging.warning(f"{input_path} is not a valid PDF.")
@@ -67,6 +79,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     input_paths = sys.argv[1:]
+    
+    #test_parser()
+    #input("Press Enter to exit...")
     process_input(input_paths)
     
     # Prevent the executable from closing immediately
