@@ -148,7 +148,9 @@ You do need to have a private GPT Environment available in your local network
 or an docker image running based on image: ${PGPT_IMAGE:-zylonai/private-gpt}:${PGPT_TAG:-0.6.2}-ollama
 Start the docker container you downloaded
 Follow the steps described here: (https://docs.privategpt.dev/quickstart/getting-started/quickstart)
-On Windows 11 Professional the Ghostscript Verions 10.0.31 was used during development
+On Windows 11 Professional the Ghostscript Verions 10.02.1 was used during development, as newer versions failed to rasterize 9 out of 10 pdfs.
+
+A local Nvidia GPU allowed rast processing. 8 out of 10 pdfs are renamed meaningfully.
 
 ### Setup Instructions
 

@@ -87,7 +87,6 @@ def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
             ocr_languages = os.getenv('OCR_LANGUAGES', 'deu,eng').split(',')
         
         try:
-            logging.info(f"before ocrmypdf")
             ocrmypdf.ocr(
                 pdf_path, 
                 temp_path, 
