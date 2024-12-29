@@ -3,7 +3,7 @@ import sys
 import logging
 from dotenv import load_dotenv
 from pdf_processor import process_pdf, PDF_EXTENSION, initialize_openai_client, set_env_vars
-from pdf_processor import initialize_privateai_client, test_parser
+from pdf_processor import initialize_privateai_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -61,7 +61,6 @@ def process_input(input_paths):
     for input_path in input_paths:
         if os.path.isfile(input_path):
             if input_path.lower().endswith(PDF_EXTENSION):
-                test_parser()
                 process_pdf(input_path, json_path)
             else:
                 logging.warning(f"{input_path} is not a valid PDF.")

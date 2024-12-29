@@ -146,6 +146,9 @@ Before starting, ensure the following:
 
 You do need to have a private GPT Environment available in your local network
 or an docker image running based on image: ${PGPT_IMAGE:-zylonai/private-gpt}:${PGPT_TAG:-0.6.2}-ollama
+Start the docker container you downloaded
+Follow the steps described here: (https://docs.privategpt.dev/quickstart/getting-started/quickstart)
+On Windows 11 Professional the Ghostscript Verions 10.0.31 was used during development
 
 ### Setup Instructions
 
@@ -199,6 +202,7 @@ PRIVATEAI_ENABLED=true
 PRIVATEAI_SCHEME=http
 PRIVATEAI_HOST=localhost
 PRIVATEAI_PORT=8001
+PRIVATEAI_TIMEOUT=180
 ```
 
 ---
