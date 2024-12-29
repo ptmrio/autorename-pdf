@@ -76,11 +76,6 @@ def is_valid_filename(filename: str) -> bool:
     
     return True
 
-# def pdf_to_text_via_pdfminer(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
-#     logging.info("extracting via pdfminer")
-#     text = extract_text(pdf_path)
-#     return text
-
 def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
     """Process PDF: always run OCR first, then extract text using PyMuPDF."""
     all_text = ""
@@ -102,11 +97,9 @@ def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
                 invalidate_digital_signatures=True,
                 #output_type='pdfa-2'
             )
-            logging.info(f"after ocrmypdf")
         except ocrmypdf_exceptions.PriorOcrFoundError:
             logging.warning(f"Prior OCR found in {pdf_path}. Skipping OCR step.")
             temp_path = pdf_path
-#        logging.info(f"Before step 2")
         # Step 2: Extract text using PyMuPDF (fitz)
         doc = fitz.open(temp_path)
         for page_num in range(start_page - 1, min(end_page, len(doc))):
@@ -120,8 +113,7 @@ def pdf_to_text(pdf_path: str, start_page: int = 1, end_page: int = 3) -> str:
 
     except Exception as e:
         logging.error(f"Error processing PDF {pdf_path}: {str(e)}")
- #       all_text = pdf_to_text_via_pdfminer(pdf_path)
-
+ 
     logging.info(f"Extracted text (first 500 characters): {all_text[:500]}...")
     
     if not all_text.strip():
