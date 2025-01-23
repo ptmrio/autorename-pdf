@@ -7,11 +7,12 @@
 ## Features
 
 - **Automatic PDF Renaming**: Extracts metadata from PDFs (company name, date, document type) and renames them accordingly.
+- **PRIVATE GPT Enabled**: You can choose between your local or the public GPT version
 - **Customizable Output Format**: Configure date formats, language preferences, and document type abbreviations to suit your needs.
 - **Organized Archiving**: Ensures consistency in document naming and file storage, streamlining archiving processes.
 - **Batch Processing**: Rename multiple PDFs within a folder in one go.
 - **Context Menu Integration**: Easily right-click on files or folders to trigger renaming actions.
-- **Powerful OCR Support**: Uses Tesseract and advanced AI via OpenAI for highly accurate text recognition from scanned PDFs.
+- **Powerful OCR Support**: Uses Tesseract and advanced AI via OpenAI or PrivateOpenAI for highly accurate text recognition from scanned PDFs.
 - **Harmonized Company Names**: Converts extracted company names into a standardized format using a pre-defined mapping.
 
 ---
@@ -96,6 +97,37 @@ The `.env` file must be properly filled out to configure the tool. Below is a br
      OCR_LANGUAGES=deu,eng
      ```
 
+11. **`PRIVATEAI_ENABLED`**:
+
+   - either True or False
+   if True it uses a private gpt api call instead of an openai call
+   - Example:
+     ```plaintext
+     PRIVATEAI_ENABLED=True
+     ```
+
+13. **`PRIVATEAI_SCHEME`**:
+
+   - Example:
+     ```plaintext
+     PRIVATEAI_SCHEME=http
+     ```
+
+
+14. **`PRIVATEAI_HOST`**:
+  - Example:
+     ```plaintext
+     PRIVATEAI_HOST=localhost
+     ```
+
+
+10. **`PRIVATEAI_PORT`**:
+  - Example:
+     ```plaintext
+     PRIVATEAI_HOST=8001
+     ```
+
+
 Make sure to save the `.env` file after making these changes.
 
 ---
@@ -108,6 +140,17 @@ Before starting, ensure the following:
 
 - **Administrator Rights**: You must run the setup as an administrator for successful installation.
 - **Chocolatey, Tesseract, and Ghostscript**: These will be automatically installed if not already present.
+
+#### Prerequisites for the Private GPT Mode
+- PRIVATEAI_ENABLED = True
+
+You do need to have a private GPT Environment available in your local network
+or an docker image running based on image: ${PGPT_IMAGE:-zylonai/private-gpt}:${PGPT_TAG:-0.6.2}-ollama
+Start the docker container you downloaded
+Follow the steps described here: (https://docs.privategpt.dev/quickstart/getting-started/quickstart)
+On Windows 11 Professional the Ghostscript Verions 10.02.1 was used during development, as newer versions failed to rasterize 9 out of 10 pdfs.
+
+A local Nvidia GPU allowed rast processing. 8 out of 10 pdfs are renamed meaningfully.
 
 ### Setup Instructions
 
@@ -157,9 +200,20 @@ OUTPUT_LANGUAGE=English
 OUTPUT_DATE_FORMAT=%Y%m%d
 PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".
 OCR_LANGUAGES=eng,deu
+PRIVATEAI_ENABLED=true
+PRIVATEAI_SCHEME=http
+PRIVATEAI_HOST=localhost
+PRIVATEAI_PORT=8001
+PRIVATEAI_TIMEOUT=180
 ```
 
 ---
+
+##
+
+
+
+
 
 ## Usage
 

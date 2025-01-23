@@ -8,3 +8,5 @@ build.py
 .env
 harmonized-company-names.json
 autorename-pdf-release.zip
+*.pdf
+*.exe
