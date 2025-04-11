@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['autorename.py'],
+    ['autorename-pdf.py'],
     pathex=[],
     binaries=[],
     datas=[],

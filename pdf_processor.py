@@ -61,6 +61,7 @@ class DocumentResponse(BaseModel):
     company_name: str = Field(..., description="Name of the company in the document")
     document_date: str = Field(..., description="Date of the document in format dd.mm.yyyy")
     document_type: str = Field(..., description="Type of the document (ER, AR, etc.)")
+    document_num: str = Field(..., description="Invoice number in the document")
 
 def is_valid_filename(filename: str) -> bool:    
     forbidden_chars = r'[<>:"/\\|?*]'
@@ -132,8 +133,9 @@ def get_prompt_text():
     txt += f"For incoming invoices (invoices my company receives) use the term '{os.getenv('PDF_INCOMING_INVOICE', 'ER')}' only, nothing more. "
     txt += f"For outgoing invoices (invoices my company sends) use the term '{os.getenv('PDF_OUTGOING_INVOICE', 'AR')}', nothing more. "
     txt += f"For all other document types, always find a short descriptive summary/subject in {os.getenv('OUTPUT_LANGUAGE', 'German')} language. " + "\n\n" 
+    txt += f"document_num: Find the invoice number in the document. It is usually labeled as 'Invoice Number' or 'Bill Number' or similar." + "\n\n"
     txt += "If a value is not found, leave it empty." + "\n\n"
-    txt += "Output - adhere to the following JSON format: company_name, document_date, document_type. No additional text and no formatting."
+    txt += "Output - adhere to the following JSON format: company_name, document_date, document_type, document_num. No additional text and no formatting."
     txt += "Strip everything from the response, except the json object output." 
     txt += os.getenv("PROMPT_EXTENSION", "")
     return txt.strip()
@@ -199,6 +201,7 @@ def process_text_with_any_ai(text: str) -> Dict[str, str]:
         company_name = parsed_response.get('company_name', UNKNOWN_VALUE)
         document_date = parsed_response.get('document_date', DEFAULT_DATE)
         document_type = parsed_response.get('document_type', UNKNOWN_VALUE)
+        document_num = parsed_response.get('document_num', UNKNOWN_VALUE)
 
         if not is_valid_filename(company_name):
             company_name = UNKNOWN_VALUE
@@ -206,13 +209,15 @@ def process_text_with_any_ai(text: str) -> Dict[str, str]:
             document_type = UNKNOWN_VALUE
         if not is_valid_filename(document_date):
             document_date = DEFAULT_DATE
+        if not is_valid_filename(document_num):
+            document_num =  UNKNOWN_VALUE
 
-        return {"company_name": company_name, "document_date": document_date, "document_type": document_type}
+        return {"company_name": company_name, "document_date": document_date, "document_type": document_type, "document_num": document_num}
 
     except Exception as e:
         logging.error(f"Error during API call: {e}")
     
-    return {"company_name": UNKNOWN_VALUE, "document_date": DEFAULT_DATE, "document_type": UNKNOWN_VALUE} 
+    return {"company_name": UNKNOWN_VALUE, "document_date": DEFAULT_DATE, "document_type": UNKNOWN_VALUE, "document_num": UNKNOWN_VALUE} 
     
 
 def harmonize_company_name(company_name: str, json_path: str) -> str:
@@ -244,12 +249,13 @@ def parse_ai_response(response: Dict[str, str]) -> Tuple[str, Optional[datetime.
     company_name = response.get('company_name', UNKNOWN_VALUE)
     document_date = response.get('document_date', DEFAULT_DATE)
     document_type = response.get('document_type', UNKNOWN_VALUE)
+    document_num = response.get('document_num', UNKNOWN_VALUE)
 
     parsed_date = dateparser.parse(document_date, settings={'DATE_ORDER': 'DMY'})
     if parsed_date is None:
         parsed_date = dateparser.parse(DEFAULT_DATE, settings={'DATE_ORDER': 'DMY'})
 
-    return company_name, parsed_date, document_type
+    return company_name, parsed_date, document_type, document_num
 
 
 def attempt_to_close_file(file_path: str) -> None:
@@ -264,12 +270,12 @@ def attempt_to_close_file(file_path: str) -> None:
             logging.warning(f"Failed to close file handle for {file_path}: {str(e)}")
 
 
-def rename_invoice(pdf_path: str, company_name: str, document_date: Optional[datetime.date], document_type: str) -> None:
+def rename_invoice(pdf_path: str, company_name: str, document_date: Optional[datetime.date], document_type: str, document_num: str) -> None:
     """Rename the document based on extracted information."""
     if document_date:
-        base_name = f'{document_date.strftime(os.getenv("OUTPUT_DATE_FORMAT", "%Y%m%d"))} {company_name} {document_type}'
+        base_name = f'{document_date.strftime(os.getenv("OUTPUT_DATE_FORMAT", "%Y%m%d"))} {company_name} {document_num} {document_type}'
     else:
-        base_name = f'{company_name} {document_type}'
+        base_name = f'{company_name} {document_num} {document_type}'
 
     new_name = f"{base_name}.pdf"
     new_name = new_name.replace(" ", "-")
@@ -307,9 +313,9 @@ def process_pdf(pdf_path: str, json_path: str) -> None:
             return
 
         ai_response = process_text_with_any_ai(extracted_text)
-        company_name, document_date, document_type = parse_ai_response(ai_response)
+        company_name, document_date, document_type, document_num = parse_ai_response(ai_response)
         company_name = harmonize_company_name(company_name, json_path)
-        rename_invoice(pdf_path, company_name, document_date, document_type)
+        rename_invoice(pdf_path, company_name, document_date, document_type, document_num)
     except Exception as e:
         logging.error(f"Error processing {pdf_path}: {str(e)}")
         logging.debug(traceback.format_exc())
