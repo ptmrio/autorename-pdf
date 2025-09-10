@@ -2,11 +2,11 @@
 /build/
 /dist/
 /venv/
-/dist/harmonized-company-names.json
-/dist/.env
+/dist/harmonized-company-names.yaml
+/dist/config.yaml
 build.py
-.env
-harmonized-company-names.json
+config.yaml
+harmonized-company-names.yaml
 autorename-pdf-release.zip
 *.pdf
 *.exe

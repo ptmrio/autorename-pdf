@@ -32,13 +32,14 @@ function Install-ChocoPackage {
     choco install $packageName -y
 }
 
-# Function to read OCR_LANGUAGES from .env file
+# Function to read OCR_LANGUAGES from config.yaml file
 function Get-OCRLanguages {
-    $envPath = Join-Path $PSScriptRoot ".env"
-    if (Test-Path $envPath) {
-        $envContent = Get-Content $envPath -Raw
-        if ($envContent -match "OCR_LANGUAGES=(.+)") {
-            return $matches[1].Split(',')
+    $configPath = Join-Path $PSScriptRoot "config.yaml"
+    if (Test-Path $configPath) {
+        $configContent = Get-Content $configPath -Raw
+        # Simple YAML parsing for ocr_languages field
+        if ($configContent -match 'ocr_languages:\s*["\']?([^"\'\r\n]+)["\']?') {
+            return $matches[1].Split(',') | ForEach-Object { $_.Trim() }
         }
     }
     return @("eng", "deu")  # Default languages if not specified

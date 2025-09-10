@@ -1,0 +1,41 @@
+# Configuration Template - Copy this to config.yaml and fill in your values
+# OpenAI Configuration
+openai:
+  api_key: "your_openai_api_key_here"
+  model: "gpt-4o"  # or gpt-3.5-turbo, gpt-4, etc.
+
+# Company Information
+company:
+  name: "Your Company Name"
+
+# Private AI Configuration
+# Determines if you use your private GPT API (true or false)
+private_ai:
+  enabled: false
+  scheme: "http"
+  host: "localhost"
+  port: 8001
+  timeout: 720
+  post_processor: "ollama"
+
+# PDF Processing Configuration
+pdf:
+  # Default name for outgoing and incoming invoices, e.g. 20220101 ACME AR.pdf
+  outgoing_invoice: "AR"
+  incoming_invoice: "ER"
+
+# Language and Localization Settings
+# Write the main language of most of the PDFs
+output_language: "English"  # or German, French, etc.
+
+# Date format for the output file name, see https://strftime.org/
+date_format: "%Y%m%d"  # YYYYMMDD format
+
+# Optional instructions for fine-tuning the prompt that extracts the invoice details
+# e.g. "My company name is also sometimes written as 'ABC'." or 
+# "If it is an incoming or outgoing invoice, add the total amount to the document_type."
+prompt_extension: ""
+
+# OCR Configuration
+# 3-letter language codes, comma separated list, according to Tesseract
+ocr_languages: "eng"  # English only, or "deu,eng" for German and English

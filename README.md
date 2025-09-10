@@ -1,319 +1,189 @@
 # AutoRename-PDF
 
-**AutoRename-PDF** is a highly efficient tool designed to automatically rename and archive PDF documents based on their content. By leveraging OCR and AI technology, it extracts critical information such as the company name, document date, and document type to create well-organized filenames. This tool simplifies document management and ensures consistency, especially for businesses handling large volumes of PDFs.
-
----
+**AutoRename-PDF** is a powerful tool that automatically renames and archives PDF documents based on their content. Using OCR and AI technology, it extracts key information like company names, dates, and document types to create organized filenames, simplifying document management for businesses handling large volumes of PDFs.
 
 ## Features
 
-- **Automatic PDF Renaming**: Extracts metadata from PDFs (company name, date, document type) and renames them accordingly.
-- **PRIVATE GPT Enabled**: You can choose between your local or the public GPT version
-- **Customizable Output Format**: Configure date formats, language preferences, and document type abbreviations to suit your needs.
-- **Organized Archiving**: Ensures consistency in document naming and file storage, streamlining archiving processes.
-- **Batch Processing**: Rename multiple PDFs within a folder in one go.
-- **Context Menu Integration**: Easily right-click on files or folders to trigger renaming actions.
-- **Powerful OCR Support**: Uses Tesseract and advanced AI via OpenAI or PrivateOpenAI for highly accurate text recognition from scanned PDFs.
-- **Harmonized Company Names**: Converts extracted company names into a standardized format using a pre-defined mapping.
+-   **Automatic PDF Renaming** - Extracts metadata and renames PDFs with structured filenames
+-   **Public & Private AI Support** - Choose between OpenAI GPT or your local private GPT instance
+-   **Customizable Output** - Configure date formats, language preferences, and document type abbreviations
+-   **Batch Processing** - Rename multiple PDFs in folders with one action
+-   **Context Menu Integration** - Right-click files or folders to trigger renaming
+-   **Powerful OCR** - Uses Tesseract and AI for accurate text recognition from scanned PDFs
+-   **Company Name Harmonization** - Standardizes company names using customizable mappings
 
----
+## Configuration
 
-## Configuration: Filling the `.env` File
+Create a `config.yaml` file in the project directory with the following configuration:
 
-The `.env` file must be properly filled out to configure the tool. Below is a breakdown of all the parameters you can set:
+```yaml
+# OpenAI Configuration
+openai:
+    api_key: "your-openai-api-key" # Get from https://platform.openai.com/
+    model: "gpt-4o" # Model to use: gpt-4o, gpt-4, gpt-3.5-turbo
 
-### Required Parameters
+# Company Information
+company:
+    name: "Your Company Name" # Your company name (prevents duplicate extraction)
 
-1. **`OPENAI_API_KEY`**:
+# PDF Processing Configuration
+pdf:
+    outgoing_invoice: "AR" # Abbreviation for outgoing invoices (Accounts Receivable)
+    incoming_invoice: "ER" # Abbreviation for incoming invoices (Expense Reports)
 
-   - Your API key for accessing OpenAI's services (like GPT-4).
-   - You can obtain your OpenAI API key by signing up at [OpenAI](https://platform.openai.com/signup).
-   - After signing up, navigate to the API section and generate a new API key. Copy this key and paste it into your `.env` file:
-     ```plaintext
-     OPENAI_API_KEY=your-openai-api-key
-     ```
+# Language and Localization Settings
+output_language: "English" # Main language of your PDFs
+date_format: "%Y%m%d" # Date format using strftime (YYYYMMDD)
+ocr_languages: "eng,deu" # Tesseract language codes (comma-separated)
 
-2. **`OPENAI_MODEL`**:
+# Optional AI Prompt Enhancement
+prompt_extension: 'If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".'
 
-   - Specifies which OpenAI model to use for OCR and content extraction. Options include `gpt-3.5-turbo` or `gpt-4`.
-   - Example:
-     ```plaintext
-     OPENAI_MODEL=gpt-4o
-     ```
+# Private AI Configuration (Optional)
+private_ai:
+    enabled: false # Set to true to use private GPT instead of OpenAI
+    scheme: "http" # Connection scheme for private AI
+    host: "localhost" # Private AI host address
+    port: 8001 # Private AI port number
+    timeout: 720 # Timeout in seconds
+    post_processor: "ollama" # Post processor type
+```
 
-3. **`MY_COMPANY_NAME`**:
+**Note**: For `ocr_languages`, you need to re-run the setup script after changing this parameter to download the required language data.
 
-   - Your company name, which prevents the AI from extracting it repeatedly if it's a constant in your documents.
-   - Example:
-     ```plaintext
-     MY_COMPANY_NAME=YourCompany
-     ```
-
-4. **`PDF_OUTGOING_INVOICE`**:
-
-   - Default abbreviation for outgoing invoices (e.g., `EARNING`).
-   - Example:
-     ```plaintext
-     PDF_OUTGOING_INVOICE=EARNING
-     ```
-
-5. **`PDF_INCOMING_INVOICE`**:
-
-   - Default abbreviation for incoming invoices (e.g., `INVOICE`).
-   - Example:
-     ```plaintext
-     PDF_INCOMING_INVOICE=INVOICE
-     ```
-
-6. **`OUTPUT_LANGUAGE`**:
-
-   - The main language of most of the PDFs, used to optimize AI prompts.
-   - Example:
-     ```plaintext
-     OUTPUT_LANGUAGE=English
-     ```
-
-7. **`OUTPUT_DATE_FORMAT`**:
-
-   - Date format for the output file name, following [strftime](https://strftime.org/) conventions.
-   - Example (for YYYYMMDD format):
-     ```plaintext
-     OUTPUT_DATE_FORMAT=%Y%m%d
-     ```
-
-8. **`PROMPT_EXTENSION`**:
-
-   - Optional instructions to fine-tune the AI prompt that extracts the invoice details.
-   - Example:
-     ```plaintext
-     PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "EARNING 12,34" or "INVOICE 56,78".
-     ```
-
-9. **`OCR_LANGUAGES`**:
-
-   - Comma-separated list of 3-letter language codes for Tesseract OCR. Ensure the appropriate language data is installed.
-   - **Note**: You need to re-run the setup script after changing this parameter to download the required language data.
-   - Example (for German and English):
-     ```plaintext
-     OCR_LANGUAGES=deu,eng
-     ```
-
-11. **`PRIVATEAI_ENABLED`**:
-
-   - either True or False
-   if True it uses a private gpt api call instead of an openai call
-   - Example:
-     ```plaintext
-     PRIVATEAI_ENABLED=True
-     ```
-
-13. **`PRIVATEAI_SCHEME`**:
-
-   - Example:
-     ```plaintext
-     PRIVATEAI_SCHEME=http
-     ```
-
-
-14. **`PRIVATEAI_HOST`**:
-  - Example:
-     ```plaintext
-     PRIVATEAI_HOST=localhost
-     ```
-
-
-10. **`PRIVATEAI_PORT`**:
-  - Example:
-     ```plaintext
-     PRIVATEAI_HOST=8001
-     ```
-
-
-Make sure to save the `.env` file after making these changes.
-
----
-
-## Installation Guide
+## Installation
 
 ### Prerequisites
 
-Before starting, ensure the following:
+-   **Administrator Rights** - Required for setup
+-   **Windows System** - Chocolatey, Tesseract, and Ghostscript will be auto-installed
 
-- **Administrator Rights**: You must run the setup as an administrator for successful installation.
-- **Chocolatey, Tesseract, and Ghostscript**: These will be automatically installed if not already present.
+### Private AI Prerequisites (EXPERIMENTAL ⚠️, Optional)
 
-#### Prerequisites for the Private GPT Mode
-- PRIVATEAI_ENABLED = True
+If using `PRIVATEAI_ENABLED=true`, you need a private GPT environment:
 
-You do need to have a private GPT Environment available in your local network
-or an docker image running based on image: ${PGPT_IMAGE:-zylonai/private-gpt}:${PGPT_TAG:-0.6.2}-ollama
-Start the docker container you downloaded
-Follow the steps described here: (https://docs.privategpt.dev/quickstart/getting-started/quickstart)
-On Windows 11 Professional the Ghostscript Verions 10.02.1 was used during development, as newer versions failed to rasterize 9 out of 10 pdfs.
-
-A local Nvidia GPU allowed rast processing. 8 out of 10 pdfs are renamed meaningfully.
+-   Docker image: `zylonai/private-gpt:0.6.2-ollama`
+-   Follow setup guide: [PrivateGPT Quickstart](https://docs.privategpt.dev/quickstart/getting-started/quickstart)
+-   **Note**: On Windows 11 Pro, Ghostscript 10.02.1 works best for PDF processing
 
 ### Setup Instructions
 
-1. **Download the Latest Release**:
+1. **Download the latest release** from [GitHub Releases](https://github.com/ptmrio/autorename-pdf/releases)
 
-   - Go to the [AutoRename-PDF GitHub Releases](https://github.com/ptmrio/autorename-pdf/releases) page.
-   - Download the latest `.zip` file.
+2. **Extract the ZIP file** to your desired location
 
-2. **Extract the ZIP Folder**:
+3. **Run setup as administrator**:
 
-   - Extract the downloaded `.zip` file to your desired location.
+    ```powershell
+    # Open PowerShell as Administrator
+    cd "C:\path\to\extracted\folder"
+    PowerShell -ExecutionPolicy Bypass -File .\setup.ps1
+    ```
 
-3. **Run the Setup Script**:
+4. **Restart your computer** to apply context menu changes
 
-   - Open **PowerShell with Administrator Rights**.
-   - Navigate to the extracted folder using the following command:
-     ```powershell
-     cd "C:\path\to\extracted\folder"
-     ```
-   - Run the setup script:
-     ```powershell
-     PowerShell -ExecutionPolicy Bypass -File .\setup.ps1
-     ```
+The setup script will automatically:
 
-4. **Follow the Installation Steps**:
+-   Install Chocolatey (if needed)
+-   Install Tesseract and Ghostscript
+-   Download OCR language data
+-   Add context menu integration
 
-   - The setup script will automatically:
-     - Install **Chocolatey** if not already installed.
-     - Install **Tesseract** and **Ghostscript** via Chocolatey.
-     - Download **language data** for Tesseract as specified in your configuration.
-     - Add AutoRename-PDF to the context menu for files and folders.
+### Troubleshooting
 
-5. **Restart Your Computer**:
-   - After the installation, restart your computer to apply all context menu changes.
+If you encounter issues, ensure these paths are in your system PATH:
 
-**Troubleshooting**: Make sure Tesseract and Ghostscript got added to your system's PATH. If not, add `C:\Program Files\Tesseract-OCR` (typically) and `C:\Program Files\gs\gsVERSION_NUMBER\bin` (typically) to your system's PATH manually. Replace `VERSION_NUMBER` with the installed Ghostscript version. Also, ensure to configure the `.env` file correctly (see below). If you still encounter any issues, please open the terminal and use `autorename-pdf` from the command line to see the error messages.
+-   `C:\Program Files\Tesseract-OCR`
+-   `C:\Program Files\gs\gsVERSION_NUMBER\bin`
 
-### Example `.env` File:
-
-```plaintext
-OPENAI_API_KEY=your-openai-api-key
-OPENAI_MODEL=gpt-4o
-MY_COMPANY_NAME=YourCompany
-PDF_OUTGOING_INVOICE=EARNING
-PDF_INCOMING_INVOICE=INVOICE
-OUTPUT_LANGUAGE=English
-OUTPUT_DATE_FORMAT=%Y%m%d
-PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".
-OCR_LANGUAGES=eng,deu
-PRIVATEAI_ENABLED=true
-PRIVATEAI_SCHEME=http
-PRIVATEAI_HOST=localhost
-PRIVATEAI_PORT=8001
-PRIVATEAI_TIMEOUT=180
-```
-
----
-
-##
-
-
-
-
+For debugging, run `autorename-pdf` from the command line to see error messages.
 
 ## Usage
 
 ### Context Menu (Recommended)
 
-Once installed, AutoRename-PDF can be accessed through the right-click context menu:
+After installation, right-click to access AutoRename-PDF:
 
-1. **Rename a Single PDF**: Right-click a PDF file and select `Auto Rename PDF` to automatically rename it.
-2. **Batch Rename PDFs in Folder**: Right-click a folder and choose `Auto Rename PDFs in Folder` to process all PDFs within.
-3. **Rename PDFs from Folder Background**: Right-click the background of a folder and select `Auto Rename PDFs in This Folder` to rename every PDF inside the folder.
+-   **Single PDF**: Right-click a PDF → `Auto Rename PDF`
+-   **Folder of PDFs**: Right-click a folder → `Auto Rename PDFs in Folder`
+-   **Current Folder**: Right-click folder background → `Auto Rename PDFs in This Folder`
 
-### Command-Line Usage (Optional)
+### Command Line
 
-For command-line users, AutoRename-PDF can also be executed from the terminal:
+```bash
+# Rename single PDF
+autorename-pdf.exe "C:\path\to\file.pdf"
 
-- **Rename a single PDF**:
-
-  ```bash
-  autorename-pdf.exe "C:\path\to\file.pdf"
-  ```
-
-- **Rename all PDFs in a folder**:
-  ```bash
-  autorename-pdf.exe "C:\path\to\folder"
-  ```
-
-**Tip**: Add the `autorename-pdf.exe` path to your system's PATH for easier access from the command line.
-
----
-
-## Harmonized Company Names
-
-The **harmonized company names** feature allows you to convert AI-extracted company names into a standardized format. This is particularly useful when working with various company name variants, ensuring consistent naming conventions in the output.
-
-For example:
-
-- **Input**: `ACME Corp`, `ACME Inc.`, `ACME Corporation`
-- **Output**: `ACME`
-
-This helps maintain uniformity in your archived files, improving searchability and organization. The harmonized company names are configured using a JSON file (`harmonized-company-names.json`), where you can map different variations of a company name to a standard name.
-
-### Example `harmonized-company-names.json`:
-
-```json
-{
-  "ACME": ["ACME Corp", "ACME Inc.", "ACME Corporation"],
-  "XYZ": ["XYZ Ltd", "XYZ LLC", "XYZ Enterprises"]
-}
+# Rename all PDFs in folder
+autorename-pdf.exe "C:\path\to\folder"
 ```
 
----
+## Company Name Harmonization
+
+Standardize company name variations using `harmonized-company-names.yaml`:
+
+```yaml
+# Harmonized Company Names
+# This file maps various company name variations to standardized names
+
+ACME:
+    - "ACME Corp"
+    - "ACME Inc."
+    - "ACME Corporation"
+    - "ACME Company"
+
+XYZ:
+    - "XYZ Ltd"
+    - "XYZ LLC"
+    - "XYZ Enterprises"
+    - "XYZ Solutions"
+```
+
+This converts various company name formats into consistent standards for better file organization. The YAML format is much more readable and easier to maintain than JSON.
 
 ## Examples
 
-Here are some real-world examples of how AutoRename-PDF can simplify your file management:
+### Basic Renaming
 
-1. **Standard Renaming**:
+-   **Input**: `invoice_123.pdf`
+-   **Output**: `20230901 ACME INVOICE.pdf`
 
-   - **Input**: `invoice_123.pdf`
-   - **Output**: `20230901 ACME ER.pdf`
-   - **Explanation**: The file is renamed using the date `20230901` (1st September 2023), `ACME` as the company name, and `ER` for an incoming invoice.
+### With Amount Extension
 
-2. **Outgoing Invoice with Custom Abbreviation**:
+Using `PROMPT_EXTENSION` to include totals:
 
-   - **Input**: `payment_invoice.pdf`
-   - **Output**: `20231015 XYZ AR.pdf`
-   - **Explanation**: The system extracts `20231015` (15th October 2023), `XYZ` as the company, and `AR` for an outgoing invoice.
+-   **Input**: `payment_invoice.pdf`
+-   **Output**: `20231015 XYZ EARNING 1,234.56.pdf`
 
-3. **Including Total Amount in Document Type**:
+### Custom Date Format
 
-   - With the `PROMPT_EXTENSION` configured to include the total amount:
-     ```plaintext
-     PROMPT_EXTENSION=If it is an incoming or outgoing invoice, add the total amount to the document_type like "AR 12,34" or "ER 56,78".
-     ```
-   - **Input**: `invoice_456.pdf`
-   - **Output**: `20230905 ACME ER 56,78.pdf`
-   - **Explanation**: The total amount `56,78` is appended to the document type `ER`.
+With `OUTPUT_DATE_FORMAT=%Y-%m-%d`:
 
-4. **Custom Date Format**:
+-   **Input**: `invoice_789.pdf`
+-   **Output**: `2023-09-10 ACME INVOICE.pdf`
 
-   - With `OUTPUT_DATE_FORMAT` set to include dashes:
-     ```plaintext
-     OUTPUT_DATE_FORMAT=%Y-%m-%d
-     ```
-   - **Input**: `invoice_789.pdf`
-   - **Output**: `2023-09-10 ACME ER.pdf`
-   - **Explanation**: The date is formatted as `YYYY-MM-DD`.
+### Batch Processing
 
-5. **Batch Renaming**:
+-   **Input Folder**: `invoice1.pdf`, `invoice2.pdf`, `invoice3.pdf`
+-   **Output**:
+    -   `20230712 CompanyA INVOICE.pdf`
+    -   `20230713 CompanyB EARNING.pdf`
+    -   `20230714 CompanyC INVOICE.pdf`
 
-   - **Input**: A folder containing `invoice1.pdf`, `invoice2.pdf`, `invoice3.pdf`.
-   - **Output**: Renamed files inside the folder as:
-     - `20230712 CompanyA ER.pdf`
-     - `20230713 CompanyB AR.pdf`
-     - `20230714 CompanyC ER.pdf`
+## Support & Contributions
+
+For questions or support, visit our [GitHub repository](https://github.com/ptmrio/autorename-pdf) and open an issue.
+
+### Contributing
+
+While we appreciate your interest in improving AutoRename-PDF, we're currently not accepting direct contributions to maintain project consistency and direction. However, you're welcome to:
+
+-   **Open an issue** to report bugs, request features, or ask questions
+-   **Create your own fork** to customize the tool for your specific needs
+-   **Share feedback** about your experience using the tool
+
+Thank you for understanding and for your interest in the project!
 
 ---
 
-## Contribution and Support
-
-We welcome contributions and feedback. If you have ideas or encounter issues, please submit a pull request or open an issue on [GitHub](https://github.com/ptmrio/autorename-pdf).
-
-For any questions or support, please reach out through our GitHub page.
+_AutoRename-PDF simplifies document management through intelligent, automated file organization._
