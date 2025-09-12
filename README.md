@@ -20,7 +20,7 @@ Create a `config.yaml` file in the project directory with the following configur
 # OpenAI Configuration
 openai:
     api_key: "your-openai-api-key" # Get from https://platform.openai.com/
-    model: "gpt-4o" # Model to use: gpt-4o, gpt-4, gpt-3.5-turbo
+    model: "gpt-5" # Model to use: gpt-5, gpt-4, gpt-3.5-turbo, ...
 
 # Company Information
 company:
@@ -141,6 +141,22 @@ XYZ:
 
 This converts various company name formats into consistent standards for better file organization. The YAML format is much more readable and easier to maintain than JSON.
 
+### 💡 Quick Tip: Generate Company Names with AI
+
+You can easily create your harmonized company names file by using AI tools like Google Gemini, ChatGPT, or Claude:
+
+1. **Collect your document filenames**: On Windows, select multiple PDF files, right-click and choose "Copy path"
+2. **Extract just the filenames**: Paste the paths into any text editor and use find/replace to remove the directory paths, keeping only the filenames
+3. **Use AI to generate the YAML**: Paste the filenames into an AI tool with this prompt:
+
+    _"Please analyze these PDF filenames and create a harmonized-company-names.yaml file that maps different variations of company names to standardized names. Use the format shown in the example file below:"_
+
+    Then include the contents of `harmonized-company-names.yaml.example` as reference.
+
+4. **Save and customize**: Save the AI-generated content as `harmonized-company-names.yaml` and adjust as needed.
+
+This method leverages AI pattern recognition to quickly identify company name variations from your existing documents, saving you time in manual mapping.
+
 ## Examples
 
 ### Basic Renaming
@@ -175,9 +191,10 @@ With `OUTPUT_DATE_FORMAT=%Y-%m-%d`:
 If you use AutoRename-PDF for your business, you are probably saving hours of work or even lots of money by saving on workforce costs. This tool automates tedious manual PDF renaming tasks that would otherwise require significant time and human resources.
 
 **Consider supporting the project:**
-- ⭐ [Star the repository](https://github.com/ptmrio/autorename-pdf) on GitHub
-- 💖 [Sponsor on GitHub](https://github.com/sponsors/ptmrio) 
-- ☕ [Donate via PayPal](https://www.paypal.com/paypalme/Petermeir)
+
+-   ⭐ [Star the repository](https://github.com/ptmrio/autorename-pdf) on GitHub
+-   💖 [Sponsor on GitHub](https://github.com/sponsors/ptmrio)
+-   ☕ [Donate via PayPal](https://www.paypal.com/paypalme/Petermeir)
 
 Your support helps maintain and improve this free tool that benefits businesses worldwide!
 
