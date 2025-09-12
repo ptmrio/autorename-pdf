@@ -170,6 +170,17 @@ With `OUTPUT_DATE_FORMAT=%Y-%m-%d`:
     -   `20230713 CompanyB EARNING.pdf`
     -   `20230714 CompanyC INVOICE.pdf`
 
+## Support the Project
+
+If you use AutoRename-PDF for your business, you are probably saving hours of work or even lots of money by saving on workforce costs. This tool automates tedious manual PDF renaming tasks that would otherwise require significant time and human resources.
+
+**Consider supporting the project:**
+- ⭐ [Star the repository](https://github.com/ptmrio/autorename-pdf) on GitHub
+- 💖 [Sponsor on GitHub](https://github.com/sponsors/ptmrio) 
+- ☕ [Donate via PayPal](https://www.paypal.com/paypalme/Petermeir)
+
+Your support helps maintain and improve this free tool that benefits businesses worldwide!
+
 ## Support & Contributions
 
 For questions or support, visit our [GitHub repository](https://github.com/ptmrio/autorename-pdf) and open an issue.
