@@ -58,14 +58,6 @@ private_ai:
 -   **Administrator Rights** - Required for setup
 -   **Windows System** - Chocolatey, Tesseract, and Ghostscript will be auto-installed
 
-### Private AI Prerequisites (EXPERIMENTAL ⚠️, Optional)
-
-If using `PRIVATEAI_ENABLED=true`, you need a private GPT environment:
-
--   Docker image: `zylonai/private-gpt:0.6.2-ollama`
--   Follow setup guide: [PrivateGPT Quickstart](https://docs.privategpt.dev/quickstart/getting-started/quickstart)
--   **Note**: On Windows 11 Pro, Ghostscript 10.02.1 works best for PDF processing
-
 ### Setup Instructions
 
 1. **Download the latest release** from [GitHub Releases](https://github.com/ptmrio/autorename-pdf/releases)
@@ -88,6 +80,14 @@ The setup script will automatically:
 -   Install Tesseract and Ghostscript
 -   Download OCR language data
 -   Add context menu integration
+
+### Private AI Prerequisites (EXPERIMENTAL ⚠️, Optional)
+
+If using `PRIVATEAI_ENABLED=true`, you need a private GPT environment:
+
+-   Docker image: `zylonai/private-gpt:0.6.2-ollama`
+-   Follow setup guide: [PrivateGPT Quickstart](https://docs.privategpt.dev/quickstart/getting-started/quickstart)
+-   **Note**: On Windows 11 Pro, Ghostscript 10.02.1 works best for PDF processing
 
 ### Troubleshooting
 
