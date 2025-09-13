@@ -20,7 +20,7 @@ Create a `config.yaml` file in the project directory with the following configur
 # OpenAI Configuration
 openai:
     api_key: "your-openai-api-key" # Get from https://platform.openai.com/
-    model: "gpt-5" # Model to use: gpt-5, gpt-4, gpt-3.5-turbo, ...
+    model: "gpt-5" # Model to use: gpt-5, gpt-4o, gpt-3.5-turbo, ...
 
 # Company Information
 company:
@@ -197,6 +197,15 @@ If you use AutoRename-PDF for your business, you are probably saving hours of wo
 -   ☕ [Donate via PayPal](https://www.paypal.com/paypalme/Petermeir)
 
 Your support helps maintain and improve this free tool that benefits businesses worldwide!
+
+### 🙏 Thank You to Our Supporters
+
+We're grateful to the following contributors who have supported AutoRename-PDF:
+
+-   [@claus82](https://github.com/claus82) - Thank you for your generous donation! 💖
+
+Your support makes it possible to continue developing and maintaining this tool for the community.
+
 
 ## Support & Contributions
 
