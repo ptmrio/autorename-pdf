@@ -38,7 +38,7 @@ function Get-OCRLanguages {
     if (Test-Path $configPath) {
         $configContent = Get-Content $configPath -Raw
         # Simple YAML parsing for ocr_languages field
-        if ($configContent -match 'ocr_languages:\s*["\']?([^"\'\r\n]+)["\']?') {
+        if ($configContent -match 'ocr_languages:\s*["]?([^"\r\n]+)["]?') {
             return $matches[1].Split(',') | ForEach-Object { $_.Trim() }
         }
     }
