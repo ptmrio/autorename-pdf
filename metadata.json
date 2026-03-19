@@ -1,0 +1,5 @@
+{
+  "Endpoint": "https://weu.codesigning.azure.net",
+  "CodeSigningAccountName": "SPQRK-Artifact-Signing",
+  "CertificateProfileName": "SpqrkAppsPublic-Certificate-Profile"
+}
