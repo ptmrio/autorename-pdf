@@ -5,18 +5,17 @@ Pipeline:
   1. Build CLI EXE        (PyInstaller --onefile)
   2. Sign CLI EXE          (Azure Trusted Signing)
   3. Build Tauri GUI       (pnpm tauri build --no-bundle)
-  4. Create staging dir    (portable layout for Velopack)
-  5. Velopack pack         (produces Portable.zip + Setup.exe)
+  4. Create staging dir    (portable layout)
+  5. Create portable ZIP   (flat ZIP from staging)
   6. Cleanup
 
 Output (in Releases/):
   - AutoRename-PDF-Portable-{version}.zip   (primary distribution)
-  - AutoRename-PDF-Setup-{version}.exe      (installer, optional)
 
 Usage:
   python build.py                  Build everything, sign all
   python build.py --nosign         Build everything, skip signing
-  python build.py --cli-only       Build CLI EXE only (skip GUI + Velopack)
+  python build.py --cli-only       Build CLI EXE only (skip GUI + packaging)
 """
 
 import glob
@@ -53,6 +52,7 @@ BUNDLE_FILES = [
     "setup.ps1",
     "config.yaml.example",
     "harmonized-company-names.yaml.example",
+    ".env.example",
 ]
 
 # Azure Trusted Signing
@@ -114,8 +114,6 @@ def check_prerequisites(flags):
     if not flags["cli_only"]:
         if shutil.which("pnpm") is None:
             errors.append("pnpm not found. Install via: npm install -g pnpm")
-        if shutil.which("vpk") is None:
-            errors.append("vpk not found. Install via: dotnet tool install -g vpk")
         if not GUI_DIR.is_dir():
             errors.append(f"GUI directory not found: {GUI_DIR}")
 
@@ -202,7 +200,7 @@ def sign_cli_artifacts(exe_path, nosign):
 
 
 def build_tauri_gui(nosign):
-    """Compile the Tauri GUI app (no bundle — Velopack handles packaging)."""
+    """Compile the Tauri GUI app (no bundle — packaged separately as ZIP)."""
     step("Build Tauri GUI (compile only)")
 
     # Install frontend deps if needed
@@ -237,21 +235,20 @@ def build_tauri_gui(nosign):
 
 
 def create_staging(cli_exe, gui_exe):
-    """Create the portable app layout for Velopack."""
+    """Create the portable app layout for ZIP packaging."""
     step("Create staging directory")
 
     if STAGING_DIR.exists():
         shutil.rmtree(str(STAGING_DIR))
     STAGING_DIR.mkdir(parents=True)
 
-    # GUI EXE — Velopack mainExe, keeps Cargo output name
+    # GUI EXE
     dst_gui = STAGING_DIR / TAURI_GUI_EXE
     print(f"  + {TAURI_GUI_EXE} (Tauri GUI)")
     shutil.copy2(str(gui_exe), str(dst_gui))
 
-    # CLI EXE — Tauri sidecar, next to GUI (flat layout).
-    # Named "autorename-pdf-cli.exe" to avoid case-insensitive collision with GUI.
-    # Also used by setup.ps1 for context menu registration and direct CLI use.
+    # CLI EXE — Tauri strips the target-triple at build time, so the runtime
+    # binary must be the plain name. Also used by setup.ps1 for context menu.
     dst_sidecar = STAGING_DIR / SIDECAR_RUNTIME
     print(f"  + {SIDECAR_RUNTIME} (CLI sidecar + context menu)")
     shutil.copy2(str(cli_exe), str(dst_sidecar))
@@ -265,32 +262,25 @@ def create_staging(cli_exe, gui_exe):
     print(f"\nStaging complete: {STAGING_DIR}")
 
 
-def run_velopack(nosign):
-    """Run Velopack to create Portable.zip and Setup.exe."""
-    step("Velopack pack")
+def create_portable_zip():
+    """Create portable ZIP from staging directory."""
+    step("Create portable ZIP")
 
-    cmd = ["node", "velopack.cjs"]
-    if nosign:
-        cmd.append("--nosign")
+    if RELEASES_DIR.is_dir():
+        shutil.rmtree(str(RELEASES_DIR), ignore_errors=True)
+    RELEASES_DIR.mkdir(parents=True, exist_ok=True)
 
-    proc = subprocess.run(cmd, cwd=str(ROOT), shell=True)
-    if proc.returncode != 0:
-        print("Velopack failed.")
-        sys.exit(1)
-
-    # Find the portable ZIP
     version = get_version()
-    portable = RELEASES_DIR / f"AutoRename-PDF-Portable-{version}.zip"
-    if portable.is_file():
-        size_mb = portable.stat().st_size / (1024 * 1024)
-        print(f"\nPortable ZIP: {portable} ({size_mb:.1f} MB)")
-    else:
-        print(f"Warning: Expected portable ZIP not found: {portable}")
+    zip_name = f"AutoRename-PDF-Portable-{version}.zip"
+    zip_path = RELEASES_DIR / zip_name
 
-    setup = RELEASES_DIR / f"AutoRename-PDF-Setup-{version}.exe"
-    if setup.is_file():
-        size_mb = setup.stat().st_size / (1024 * 1024)
-        print(f"Setup EXE:    {setup} ({size_mb:.1f} MB)")
+    import zipfile
+    with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in STAGING_DIR.iterdir():
+            zf.write(str(item), item.name)
+
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    print(f"Portable ZIP: {zip_path} ({size_mb:.1f} MB)")
 
 
 def cleanup():
@@ -325,7 +315,7 @@ def smoke_test(exe_path):
     ]
 
     # Add dry-run test if fixture exists
-    fixture = ROOT_DIR / "tests" / "fixtures" / "text_invoice_acme.pdf"
+    fixture = ROOT / "tests" / "fixtures" / "text_invoice_acme.pdf"
     if fixture.is_file():
         tests.append((["rename", "--dry-run", "-o", "json", str(fixture)], None, "dry-run single PDF"))
 
@@ -367,7 +357,7 @@ def main():
     }
 
     version = get_version()
-    mode = "CLI only" if flags["cli_only"] else "CLI + GUI + Velopack"
+    mode = "CLI only" if flags["cli_only"] else "CLI + GUI"
     sign_label = "unsigned" if flags["nosign"] else "signed"
     print(f"AutoRename-PDF Build v{version} ({mode}, {sign_label})")
 
@@ -386,7 +376,7 @@ def main():
     if not flags["cli_only"]:
         gui_exe = build_tauri_gui(flags["nosign"])
         create_staging(cli_exe, gui_exe)
-        run_velopack(flags["nosign"])
+        create_portable_zip()
 
     cleanup()
     print(f"\nBuild complete. Output in Releases/")

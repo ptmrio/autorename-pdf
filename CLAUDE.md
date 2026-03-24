@@ -80,12 +80,28 @@ All providers use `instructor` for structured Pydantic output. Anthropic uses na
 2. **Tier 2a**: PaddleOCR via subprocess (free, ~2-5s/page, if installed)
 3. **Tier 2b**: Vision mode — page images sent to LLM (~$0.0001/page)
 
-Controlled by `pdf.extraction_mode` (auto/text_only/vision_only) and `pdf.ocr_fallback` (paddleocr/vision/none).
+Controlled by `pdf.ocr` (false/true/"auto") and `pdf.vision` (false/true/"auto").
+
+## Environment Variables
+
+Config values support `${VAR_NAME}` syntax for environment variable references.
+A `.env` file next to `config.yaml` is loaded automatically via `python-dotenv`.
 
 ## Testing
 
-Tests in `tests/` using pytest. Mock AI API calls, never make real API calls in tests.
+Tests in `tests/` using pytest. Unit tests mock AI API calls. Live integration tests (`--run-live`) call real providers.
 Business logic (harmonization, date parsing, filename generation) should have >80% coverage.
+
+### Live Tests
+
+```bash
+pytest tests/ --run-live -v                       # All available providers
+pytest tests/ --run-live --provider ollama -v      # Free, local only
+pytest tests/ --run-live --provider openai -v      # OpenAI only
+pytest tests/ --run-live --provider anthropic -v   # Anthropic only
+```
+
+API keys are loaded from `.env` file (see `.env.example`). Ollama tests require Ollama running locally.
 
 ## Build & Distribution
 

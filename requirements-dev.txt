@@ -2,6 +2,7 @@
 -r requirements.txt
 pytest>=8.0.0
 pytest-cov>=5.0.0
+python-dotenv>=1.0.0
 fpdf2>=2.8.0
 pyinstaller>=6.10.0
 pyinstaller-hooks-contrib>=2024.8

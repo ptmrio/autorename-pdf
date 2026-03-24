@@ -1,48 +1,45 @@
 """
-Utility functions and data models.
-This module contains validation functions, data models, and general utilities.
+Utility functions for filename validation and system operations.
 """
 
-import os
 import sys
 import logging
 import re
-import ctypes
-from typing import Dict, Tuple, Optional
-from pydantic import BaseModel, Field
+import unicodedata
 
 # Constants
 UNKNOWN_VALUE = "Unknown"
 DEFAULT_DATE = "00000000"
 
-class DocumentResponse(BaseModel):
-    """Data model for document response."""
-    company_name: str = Field(..., description="Name of the company in the document")
-    document_date: str = Field(..., description="Date of the document in format dd.mm.yyyy")
-    document_type: str = Field(..., description="Type of the document (ER, AR, etc.)")
+
+class ExitCode:
+    """Process exit codes for structured CLI output."""
+    SUCCESS = 0
+    GENERAL_ERROR = 1
+    USAGE_ERROR = 2
+    CONFIG_ERROR = 3
+    NO_FILES = 4
+    PARTIAL_FAILURE = 5
+    PROVIDER_ERROR = 10
+    AUTH_ERROR = 11
+
 
 def is_valid_filename(filename: str) -> bool:
     """Check if a filename is valid for the filesystem."""
     forbidden_chars = r'[<>:"/\\|?*]'
-    
+
     if re.search(forbidden_chars, filename):
         return False
-    
+
     if not filename or filename.isspace():
         return False
-    
+
     if len(filename) > 255:
         return False
-    
+
     return True
 
-def attempt_to_close_file(file_path: str) -> None:
-    """Attempt to close the file if it's open (Windows-specific)."""
-    if sys.platform == "win32":
-        try:
-            # Convert the file path to a wide character string
-            file_path_wide = ctypes.c_wchar_p(file_path)
-            # Attempt to close the file handle
-            ctypes.windll.kernel32.CloseHandle(file_path_wide)
-        except Exception as e:
-            logging.warning(f"Failed to close file handle for {file_path}: {str(e)}")
+
+def normalize_unicode(value: str) -> str:
+    """Normalize user-visible text to NFC for stable comparisons and filenames."""
+    return unicodedata.normalize("NFC", value) if isinstance(value, str) else value

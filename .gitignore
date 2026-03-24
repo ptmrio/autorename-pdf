@@ -1,3 +1,4 @@
+.env
 __pycache__/
 /build/
 /dist/
@@ -12,7 +13,9 @@ harmonized-company-names.yaml
 _impl_progress.md
 .claude/
 .coverage
+.pytest_cache/
 .todo/
+.backup-recovery/
 
 # GUI (Tauri)
 gui/node_modules/

@@ -18,6 +18,7 @@ from _document_processing import (
     _write_undo_log_v2,
     generate_batch_id,
     list_undo_batches,
+    write_empty_batch,
     _rename_with_retry,
 )
 
@@ -527,3 +528,94 @@ class TestRenameWithRetry:
             m.setattr(os, "rename", always_fail)
             with pytest.raises(PermissionError, match="file is in use after 3 attempts"):
                 _rename_with_retry(src, dst, retries=3, delay=0.01)
+
+
+class TestWriteEmptyBatch:
+    """Tests for write_empty_batch() — the all-skipped undo safety fix."""
+
+    def _write_v2_log(self, log_path, batches):
+        with open(log_path, 'w') as f:
+            json.dump({"version": 2, "batches": batches}, f)
+
+    def test_creates_log_with_empty_batch(self, tmp_path):
+        log_path = str(tmp_path / ".autorename-log.json")
+        write_empty_batch(log_path, "skip-batch-001")
+
+        with open(log_path) as f:
+            data = json.load(f)
+        assert data["version"] == 2
+        assert len(data["batches"]) == 1
+        b = data["batches"][0]
+        assert b["batch_id"] == "skip-batch-001"
+        assert b["files"] == []
+        assert b["undone"] is False
+
+    def test_appends_to_existing_log(self, tmp_path):
+        log_path = str(tmp_path / ".autorename-log.json")
+        recent_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._write_v2_log(log_path, [{
+            "batch_id": "prev-batch",
+            "timestamp": recent_ts,
+            "source": "cli",
+            "undone": False,
+            "files": [{"old_path": "a.pdf", "new_path": "b.pdf", "timestamp": recent_ts}],
+        }])
+
+        write_empty_batch(log_path, "skip-batch-002")
+
+        with open(log_path) as f:
+            data = json.load(f)
+        assert len(data["batches"]) == 2
+        assert data["batches"][0]["batch_id"] == "prev-batch"
+        assert data["batches"][1]["batch_id"] == "skip-batch-002"
+        assert data["batches"][1]["files"] == []
+
+    def test_undo_targets_empty_batch_not_previous(self, tmp_path):
+        """Critical: undo after all-skipped must NOT revert the prior run."""
+        old_path = str(tmp_path / "original.pdf")
+        new_path = str(tmp_path / "20240315 ACME ER.pdf")
+        with open(new_path, 'w') as f:
+            f.write("fake pdf")
+
+        log_path = str(tmp_path / ".autorename-log.json")
+        recent_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        # Batch 1: a real rename from a previous run
+        self._write_v2_log(log_path, [{
+            "batch_id": "real-batch",
+            "timestamp": recent_ts,
+            "source": "cli",
+            "undone": False,
+            "files": [{"old_path": old_path, "new_path": new_path, "timestamp": recent_ts}],
+        }])
+
+        # Batch 2: empty batch from an all-skipped run
+        write_empty_batch(log_path, "skip-batch")
+
+        # Default undo (no batch_id) should pick the empty batch
+        success, fail, results = undo_renames(log_path)
+        assert success == 0
+        assert fail == 0
+        assert results == []
+
+        # The real file should still be in its renamed location
+        assert os.path.exists(new_path)
+
+        # The empty batch should be marked undone, real batch untouched
+        with open(log_path) as f:
+            data = json.load(f)
+        assert data["batches"][0]["undone"] is False  # real-batch
+        assert data["batches"][1]["undone"] is True    # skip-batch
+
+    def test_undo_empty_batch_is_noop(self, tmp_path):
+        log_path = str(tmp_path / ".autorename-log.json")
+        write_empty_batch(log_path, "skip-batch")
+
+        success, fail, results = undo_renames(log_path)
+        assert success == 0
+        assert fail == 0
+        assert results == []
+
+        with open(log_path) as f:
+            data = json.load(f)
+        assert data["batches"][0]["undone"] is True

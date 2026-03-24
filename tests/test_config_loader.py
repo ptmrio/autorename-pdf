@@ -8,7 +8,10 @@ import sys
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from _config_loader import load_yaml_config, load_company_names, _detect_old_schema, _deep_merge, _migrate_extraction_config
+from _config_loader import (
+    load_yaml_config, load_company_names, _detect_old_schema, _deep_merge,
+    _migrate_extraction_config, _resolve_env_vars, _interpolate_env_vars,
+)
 
 
 class TestDeepMerge:
@@ -99,6 +102,13 @@ class TestLoadYamlConfig:
         assert result["pdf"]["vision"] is False
         assert result["paddleocr"]["languages"] == ["en"]
 
+    def test_corrupt_yaml(self, tmp_path):
+        """Corrupt YAML returns None gracefully."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(": invalid: yaml: {{{}}")
+        result = load_yaml_config(str(config_file))
+        assert result is None
+
     def test_paddleocr_path_autodetect(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         config = {"config_version": 2, "ai": {"provider": "openai", "api_key": "test"}}
@@ -188,3 +198,67 @@ class TestLoadCompanyNames:
             f.write("")
         result = load_company_names(path)
         assert result == {}
+
+    def test_corrupt_yaml_returns_empty(self, tmp_path):
+        """Corrupt company names YAML returns empty dict."""
+        names_file = tmp_path / "names.yaml"
+        names_file.write_text(": invalid: yaml: {{{}}")
+        from _config_loader import load_company_names
+        result = load_company_names(str(names_file))
+        assert result == {}
+
+
+class TestEnvVarInterpolation:
+    """Test ${VAR_NAME} environment variable resolution in config values."""
+
+    def test_resolve_single_var(self, monkeypatch):
+        monkeypatch.setenv("MY_API_KEY", "sk-test-12345")
+        assert _resolve_env_vars("${MY_API_KEY}") == "sk-test-12345"
+
+    def test_resolve_var_in_string(self, monkeypatch):
+        monkeypatch.setenv("HOST", "api.example.com")
+        assert _resolve_env_vars("https://${HOST}/v1") == "https://api.example.com/v1"
+
+    def test_unset_var_left_unchanged(self, monkeypatch):
+        monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
+        result = _resolve_env_vars("${NONEXISTENT_VAR}")
+        assert result == "${NONEXISTENT_VAR}"
+
+    def test_no_vars_unchanged(self):
+        assert _resolve_env_vars("sk-plain-key-123") == "sk-plain-key-123"
+
+    def test_empty_string(self):
+        assert _resolve_env_vars("") == ""
+
+    def test_interpolate_nested_dict(self, monkeypatch):
+        monkeypatch.setenv("TEST_KEY", "resolved-value")
+        config = {
+            "ai": {
+                "api_key": "${TEST_KEY}",
+                "provider": "openai",
+                "temperature": 0.0,
+            },
+            "company": {"name": "Acme Corp"},
+        }
+        result = _interpolate_env_vars(config)
+        assert result["ai"]["api_key"] == "resolved-value"
+        assert result["ai"]["provider"] == "openai"  # no ${}, unchanged
+        assert result["ai"]["temperature"] == 0.0  # non-string, unchanged
+        assert result["company"]["name"] == "Acme Corp"
+
+    def test_interpolation_in_load_yaml(self, tmp_path, monkeypatch):
+        """Full integration: ${VAR} in YAML file is resolved during load."""
+        monkeypatch.setenv("TEST_OPENAI_KEY", "sk-from-env-var")
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+config_version: 2
+ai:
+  provider: openai
+  model: gpt-5.4
+  api_key: "${TEST_OPENAI_KEY}"
+company:
+  name: "Test Corp"
+""")
+        config = load_yaml_config(str(config_file))
+        assert config is not None
+        assert config["ai"]["api_key"] == "sk-from-env-var"

@@ -355,7 +355,7 @@ export async function renderSettingsView(root: HTMLElement): Promise<void> {
       } else if (isSidecarError) {
         message = 'CLI executable not found';
         hint = `The GUI needs <code>autorename-pdf-cli.exe</code> to work.<br><br>
-          <strong>Installed app?</strong> Reinstall AutoRename-PDF.<br>
+          <strong>Portable app?</strong> Re-extract the ZIP — <code>autorename-pdf-cli.exe</code> must be next to the GUI.<br>
           <strong>Developing?</strong> Run <code class="selectable">python build.py --cli-only --nosign</code> — it builds the EXE and stages it for Tauri automatically.`;
         setState({ statusError: 'CLI executable not found' });
       } else {

@@ -1,55 +1,243 @@
 """
 Configuration loader for YAML files.
-Replaces the old .env file loading functionality.
+Handles v2 config schema, validation, defaults, and old schema detection.
 """
+from __future__ import annotations
 
 import os
-import yaml
+import re
+import sys
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
+
+import yaml
+
+# Pattern for environment variable references: ${VAR_NAME}
+_ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
-def load_yaml_config(config_path: str) -> Optional[Dict[str, Any]]:
+def _load_dotenv_from(config_dir: str) -> None:
+    """Load .env file from the same directory as config.yaml (if it exists)."""
+    try:
+        from dotenv import load_dotenv
+        env_path = os.path.join(config_dir, ".env")
+        if os.path.isfile(env_path):
+            load_dotenv(env_path)
+            logging.debug(f"Loaded .env from {env_path}")
+    except ImportError:
+        pass  # python-dotenv not installed — rely on OS environment
+
+
+# Default config values for v2 schema
+DEFAULTS = {
+    "config_version": 2,
+    "ai": {
+        "provider": "openai",
+        "model": "gpt-5.4",
+        "api_key": "",
+        "base_url": "",
+        "temperature": 0.0,
+        "max_retries": 2,
+    },
+    "pdf": {
+        "max_pages": 3,
+        "ocr": False,
+        "vision": False,
+        "text_quality_threshold": 0.3,
+        "outgoing_invoice": "AR",
+        "incoming_invoice": "ER",
+    },
+    "paddleocr": {
+        "venv_path": "",
+        "languages": ["en"],
+        "use_gpu": False,
+    },
+    "company": {
+        "name": "",
+    },
+    "output": {
+        "language": "English",
+        "date_format": "%Y%m%d",
+    },
+    "prompt_extension": "",
+}
+
+
+def _resolve_env_vars(value: str) -> str:
+    """Replace ${VAR_NAME} references with environment variable values.
+
+    If the env var is not set, the reference is left unchanged so the user
+    sees a clear error (e.g. 'API key required') rather than an empty string.
     """
-    Load configuration from a YAML file.
-    
-    Args:
-        config_path (str): Path to the YAML configuration file
-        
-    Returns:
-        Dict[str, Any]: Configuration dictionary or None if file doesn't exist
+    def _replace(match):
+        var_name = match.group(1)
+        env_value = os.environ.get(var_name)
+        if env_value is not None:
+            return env_value
+        logging.warning(f"Environment variable ${{{var_name}}} is not set")
+        return match.group(0)  # leave ${VAR} as-is
+
+    return _ENV_VAR_PATTERN.sub(_replace, value)
+
+
+def _interpolate_env_vars(config: dict) -> dict:
+    """Walk config dict and resolve ${VAR} references in string values."""
+    result = {}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            result[key] = _interpolate_env_vars(value)
+        elif isinstance(value, str) and "${" in value:
+            result[key] = _resolve_env_vars(value)
+        else:
+            result[key] = value
+    return result
+
+
+def _deep_merge(defaults: dict, overrides: dict) -> dict:
+    """Merge overrides into defaults, recursing into nested dicts."""
+    result = defaults.copy()
+    for key, value in overrides.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _detect_old_schema(config: dict) -> bool:
+    """Detect v1 config schema by checking for old top-level keys."""
+    return "openai" in config and "api_key" in config.get("openai", {})
+
+
+def _print_migration_instructions():
+    """Print instructions for migrating from v1 to v2 config schema."""
+    msg = """
+CONFIG MIGRATION REQUIRED
+
+Your config.yaml uses the old v1 schema.
+Please update it to v2 format.
+
+See config.yaml.example for the new schema.
+
+Key changes:
+  openai.api_key     -> ai.api_key
+  openai.model       -> ai.model
+  private_ai.*       -> REMOVED (use ai.provider: "ollama")
+  output_language    -> output.language
+  date_format        -> output.date_format
+  ocr_languages      -> paddleocr.languages
+
+New:
+  ai.provider supports openai, anthropic, gemini, xai, and ollama.
+"""
+    print(msg)
+
+
+def _migrate_extraction_config(config: dict) -> dict:
+    """Translate old extraction_mode/ocr_fallback keys to new ocr/vision keys.
+
+    Logs a deprecation warning if old keys are found.
+    """
+    pdf = config.get("pdf", {})
+    mode = pdf.pop("extraction_mode", None)
+    fallback = pdf.pop("ocr_fallback", None)
+
+    if mode is None and fallback is None:
+        return config
+
+    logging.warning(
+        "Deprecated config keys 'extraction_mode' and/or 'ocr_fallback' detected. "
+        "Please migrate to 'ocr' and 'vision'. See config.yaml.example."
+    )
+
+    if mode == "vision_only":
+        pdf.setdefault("ocr", False)
+        pdf.setdefault("vision", True)
+    elif mode == "text_only":
+        pdf.setdefault("ocr", False)
+        pdf.setdefault("vision", False)
+    else:
+        # mode is "auto" or unset — interpret fallback
+        if fallback == "paddleocr":
+            pdf.setdefault("ocr", "auto")
+            pdf.setdefault("vision", False)
+        elif fallback == "vision":
+            pdf.setdefault("ocr", False)
+            pdf.setdefault("vision", "auto")
+        else:
+            # fallback == "none" or unset
+            pdf.setdefault("ocr", False)
+            pdf.setdefault("vision", False)
+
+    config["pdf"] = pdf
+    return config
+
+
+def load_yaml_config(config_path: str) -> dict[str, Any] | None:
+    """Load and validate configuration from a YAML file.
+
+    Returns a fully-merged config dict with defaults applied,
+    or None if the file doesn't exist.
+    Exits with error if old schema is detected.
     """
     if not os.path.exists(config_path):
         logging.warning(f'Config file {config_path} not found')
         return None
-        
+
+    # Load .env from the same directory as config.yaml
+    _load_dotenv_from(os.path.dirname(os.path.abspath(config_path)))
+
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
-            config = yaml.safe_load(file)
+            raw_config = yaml.safe_load(file)
+            if not raw_config:
+                logging.error(f'Config file {config_path} is empty')
+                return None
+
+            # Detect old v1 schema
+            if _detect_old_schema(raw_config):
+                _print_migration_instructions()
+                sys.exit(1)
+
+            # Migrate old extraction keys before merging
+            _migrate_extraction_config(raw_config)
+
+            # Merge with defaults
+            config = _deep_merge(DEFAULTS, raw_config)
+
+            # Resolve ${VAR} environment variable references
+            config = _interpolate_env_vars(config)
+
+            # Auto-detect PaddleOCR venv path if not set
+            if not config["paddleocr"]["venv_path"]:
+                if sys.platform == "win32":
+                    base = os.environ.get("LOCALAPPDATA", "")
+                else:
+                    base = os.path.join(os.path.expanduser("~"), ".local", "share")
+                if base:
+                    config["paddleocr"]["venv_path"] = os.path.join(
+                        base, "autorename-pdf", "paddleocr-venv"
+                    )
+
             logging.info(f'Successfully loaded config from {config_path}')
             return config
+
     except yaml.YAMLError as e:
         logging.error(f'Error parsing YAML config file {config_path}: {e}')
         return None
+    except SystemExit:
+        raise
     except Exception as e:
         logging.error(f'Error loading config file {config_path}: {e}')
         return None
 
 
-def load_company_names(yaml_path: str) -> Dict[str, list]:
-    """
-    Load harmonized company names from YAML file.
-    
-    Args:
-        yaml_path (str): Path to the company names YAML file
-        
-    Returns:
-        Dict[str, list]: Company name mappings
-    """
+def load_company_names(yaml_path: str) -> dict[str, list]:
+    """Load harmonized company names from YAML file."""
     if not os.path.exists(yaml_path):
         logging.warning(f'Company names file {yaml_path} not found')
         return {}
-        
+
     try:
         with open(yaml_path, 'r', encoding='utf-8') as file:
             company_names = yaml.safe_load(file)
@@ -63,81 +251,3 @@ def load_company_names(yaml_path: str) -> Dict[str, list]:
     except Exception as e:
         logging.error(f'Error loading company names file {yaml_path}: {e}')
         return {}
-
-
-def flatten_config_for_env(config: Dict[str, Any], prefix: str = '', separator: str = '_') -> Dict[str, str]:
-    """
-    Flatten nested YAML config into environment variable format.
-    
-    Args:
-        config: The configuration dictionary
-        prefix: Prefix for environment variable names
-        separator: Separator for nested keys
-        
-    Returns:
-        Dict[str, str]: Flattened configuration suitable for environment variables
-    """
-    env_vars = {}
-    
-    def _flatten(obj: Any, parent_key: str = '') -> None:
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                new_key = f"{parent_key}{separator}{key.upper()}" if parent_key else key.upper()
-                _flatten(value, new_key)
-        else:
-            env_vars[parent_key] = str(obj) if obj is not None else ''
-    
-    _flatten(config, prefix.upper() if prefix else '')
-    return env_vars
-
-
-def config_to_env_mapping(config: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Convert YAML config structure to the environment variable format expected by the application.
-    
-    Args:
-        config: The loaded YAML configuration
-        
-    Returns:
-        Dict[str, str]: Environment variable mappings
-    """
-    if not config:
-        return {}
-        
-    env_mapping = {}
-    
-    # OpenAI configuration
-    if 'openai' in config:
-        openai_config = config['openai']
-        if 'api_key' in openai_config:
-            env_mapping['OPENAI_API_KEY'] = openai_config['api_key']
-        if 'model' in openai_config:
-            env_mapping['OPENAI_MODEL'] = openai_config['model']
-    
-    # Company configuration
-    if 'company' in config and 'name' in config['company']:
-        env_mapping['MY_COMPANY_NAME'] = config['company']['name']
-    
-    # Private AI configuration
-    if 'private_ai' in config:
-        private_ai = config['private_ai']
-        env_mapping['PRIVATEAI_ENABLED'] = str(private_ai.get('enabled', False)).lower()
-        env_mapping['PRIVATEAI_SCHEME'] = private_ai.get('scheme', 'http')
-        env_mapping['PRIVATEAI_HOST'] = private_ai.get('host', 'localhost')
-        env_mapping['PRIVATEAI_PORT'] = str(private_ai.get('port', 8001))
-        env_mapping['PRIVATEAI_TIMEOUT'] = str(private_ai.get('timeout', 720))
-        env_mapping['PRIVATEAI_POST_PROCESSOR'] = private_ai.get('post_processor', 'ollama')
-    
-    # PDF configuration
-    if 'pdf' in config:
-        pdf_config = config['pdf']
-        env_mapping['PDF_OUTGOING_INVOICE'] = pdf_config.get('outgoing_invoice', 'AR')
-        env_mapping['PDF_INCOMING_INVOICE'] = pdf_config.get('incoming_invoice', 'ER')
-    
-    # Language and localization
-    env_mapping['OUTPUT_LANGUAGE'] = config.get('output_language', 'German')
-    env_mapping['OUTPUT_DATE_FORMAT'] = config.get('date_format', '%Y%m%d')
-    env_mapping['PROMPT_EXTENSION'] = config.get('prompt_extension', '')
-    env_mapping['OCR_LANGUAGES'] = config.get('ocr_languages', 'deu,eng')
-    
-    return env_mapping

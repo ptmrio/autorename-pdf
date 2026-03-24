@@ -1,15 +1,23 @@
 """End-to-end tests for the full rename pipeline (with mocked AI)."""
 
+import json
 import os
 import sys
 import shutil
+import argparse
 import pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from _ai_processing import DocumentMetadata
-from autorename_pdf_runner import process_pdf, collect_pdf_files
+from autorename_pdf_runner import process_pdf, collect_pdf_files, FileResult, ExitCode, _mod
+
+_handle_rename = _mod._handle_rename
+_handle_undo = _mod._handle_undo
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import assert_batch_result_schema, assert_undo_result_schema
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -247,8 +255,150 @@ class TestCollectPdfFiles:
         assert len(files_flat) == 1
         assert len(files_recursive) == 2
 
+    def test_non_pdf_file_skipped(self, tmp_path):
+        """Non-PDF files should be skipped with warning."""
+        txt_file = tmp_path / "notes.txt"
+        txt_file.write_text("Not a PDF")
+        result = collect_pdf_files([str(txt_file)])
+        assert len(result) == 0
+
+    def test_nonexistent_path_skipped(self):
+        """Nonexistent paths should be skipped with error."""
+        result = collect_pdf_files(["/nonexistent/path/file.pdf"])
+        assert len(result) == 0
+
     def test_trailing_backslash_path(self, tmp_path):
         (tmp_path / "a.pdf").write_text("fake")
         mangled = str(tmp_path) + '\\"'
         files = collect_pdf_files([mangled])
         assert len(files) == 1
+
+
+# ---------------------------------------------------------------------------
+# Workflow simulation: full handler tests with fixture PDFs
+# ---------------------------------------------------------------------------
+
+class TestWorkflowSimulation:
+    """Full handler-level workflow tests using real fixture PDFs."""
+
+    @patch("autorename_pdf.extract_metadata")
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_batch_rename_json_output(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
+        """Full batch rename through _handle_rename with JSON output."""
+        mock_load.return_value = sample_config
+
+        # Copy 3 different fixture PDFs to tmp_path
+        fixtures = ["text_invoice_acme.pdf", "text_rechnung_mustermann.pdf", "text_letter_globex.pdf"]
+        ai_responses = [
+            DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER"),
+            DocumentMetadata(company_name="Mustermann GmbH", document_date="01.01.2024", document_type="ER"),
+            DocumentMetadata(company_name="Globex", document_date="10.06.2023", document_type="Brief"),
+        ]
+        paths = []
+        for fname in fixtures:
+            src = os.path.join(FIXTURES_DIR, fname)
+            dst = str(tmp_path / fname)
+            shutil.copy2(src, dst)
+            paths.append(dst)
+
+        mock_ai.side_effect = ai_responses
+
+        args = argparse.Namespace(
+            config_path=None, paths=paths, dry_run=False,
+            recursive=False, quiet=True, provider=None, model=None,
+            vision=False, text_only=False, ocr=False, output="json",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        data = json.loads(capsys.readouterr().out)
+        assert_batch_result_schema(data)
+        assert data["total"] == 3
+        assert data["renamed"] == 3
+        assert data["batch_id"] is not None
+
+        # Verify files were actually renamed
+        for f in data["files"]:
+            assert f["status"] == "renamed"
+            assert f["new_name"] is not None
+
+    @patch("autorename_pdf.extract_metadata")
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_rename_then_undo(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
+        """Rename files, then undo — full round-trip."""
+        mock_load.return_value = sample_config
+
+        src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
+        pdf_copy = str(tmp_path / "text_invoice_acme.pdf")
+        shutil.copy2(src, pdf_copy)
+
+        mock_ai.return_value = DocumentMetadata(
+            company_name="ACME", document_date="15.03.2024", document_type="ER",
+        )
+
+        # Step 1: Rename
+        args = argparse.Namespace(
+            config_path=None, paths=[pdf_copy], dry_run=False,
+            recursive=False, quiet=True, provider=None, model=None,
+            vision=False, text_only=False, ocr=False, output="json",
+        )
+        with pytest.raises(SystemExit):
+            _handle_rename(args, "json")
+
+        rename_data = json.loads(capsys.readouterr().out)
+        assert rename_data["renamed"] == 1
+        renamed_path = rename_data["files"][0]["new_path"]
+        # On Windows, path separators may differ
+        assert os.path.exists(renamed_path.replace("/", os.sep))
+
+        # Step 2: Undo
+        undo_args = argparse.Namespace(
+            directory=str(tmp_path), list_batches=False,
+            batch=None, undo_all=False,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_undo(undo_args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        undo_data = json.loads(capsys.readouterr().out)
+        assert_undo_result_schema(undo_data)
+        assert undo_data["restored"] == 1
+
+        # Original file should be restored
+        assert os.path.exists(pdf_copy)
+
+    @patch("autorename_pdf.extract_metadata")
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_mixed_success_and_failure(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
+        """Batch with one success and one failure (empty PDF)."""
+        mock_load.return_value = sample_config
+
+        # Copy a good PDF and the empty PDF
+        good = str(tmp_path / "good.pdf")
+        shutil.copy2(os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf"), good)
+        empty = str(tmp_path / "empty.pdf")
+        shutil.copy2(os.path.join(FIXTURES_DIR, "empty.pdf"), empty)
+
+        # AI returns metadata for the good PDF, None for the empty one
+        mock_ai.side_effect = [
+            DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER"),
+            None,
+        ]
+
+        args = argparse.Namespace(
+            config_path=None, paths=[good, empty], dry_run=False,
+            recursive=False, quiet=True, provider=None, model=None,
+            vision=False, text_only=False, ocr=False, output="json",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.PARTIAL_FAILURE
+        data = json.loads(capsys.readouterr().out)
+        assert_batch_result_schema(data)
+        assert data["renamed"] == 1
+        assert data["failed"] == 1

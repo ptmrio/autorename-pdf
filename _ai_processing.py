@@ -1,142 +1,237 @@
 """
-AI content processing and API calls for OpenAI and PrivateGPT.
-This module handles the actual AI API calls and response processing.
+AI content processing with multi-provider support via instructor.
+Supports OpenAI, Anthropic (native), Gemini, xAI, and Ollama.
 """
+from __future__ import annotations
 
-import os
+import base64
+import io
 import logging
-import json
-import re
-import regex
-from typing import Dict
+
+from pydantic import BaseModel, Field
+from PIL import Image
+import instructor
 from openai import OpenAI
-from pgpt_python.client import PrivateGPTApi
-from _ai_clients import get_client
 
-# Constants
-UNKNOWN_VALUE = "Unknown"
-DEFAULT_DATE = "00000000"
+from _pdf_utils import ExtractionResult
 
-def get_prompt_text():
-    """Generate the prompt text for AI processing."""
-    txt = "You will extract the company name, document date,"
-    txt += " and document type from the following PDF text. "
-    txt += "Due to the nature of OCR Text detection, the text will be very noisy and might "
-    txt += "contain spelling and detection errors, handle those as good as possible." + "\n\n" 
-    txt += "" + "\n\n" 
-    txt += f"document_date: Find the most appropriate date (e.g. the invoice date) and assume the correct Date Format according to the language and location of the document. Return format must be: dd.mm.YYYY" + "\n\n" 
-    txt += f"company_name: Find the name of the company that is the corresponding party of the document. My company name is: \"{os.getenv('MY_COMPANY_NAME')}\", avoid using my company name as company_name in the response. For the company_name you always strip the legal form (e.U., SARL, GmbH, AG, Lmt, Limited etc.)" + "\n\n" 
-    txt += f"document_type: Find the best matching type of the document. Valid document types are: "
-    txt += f"For incoming invoices (invoices my company receives) use the term '{os.getenv('PDF_INCOMING_INVOICE', 'ER')}' only, nothing more. "
-    txt += f"For outgoing invoices (invoices my company sends) use the term '{os.getenv('PDF_OUTGOING_INVOICE', 'AR')}', nothing more. "
-    txt += f"For all other document types, always find a short descriptive summary/subject in {os.getenv('OUTPUT_LANGUAGE', 'German')} language. " + "\n\n" 
-    txt += "If a value is not found, leave it empty." + "\n\n"
-    txt += "Output - adhere to the following JSON format: company_name, document_date, document_type. No additional text and no formatting."
-    txt += "Strip everything from the response, except the json object output." 
-    txt += os.getenv("PROMPT_EXTENSION", "")
-    return txt.strip()
 
-def get_open_ai_content(text: str):
-    """Call the public OpenAI API using your API Key."""
-    client = get_client()
-    response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4"),
-            messages=[
-                {
-                    "role": "system", 
-                    "content": get_prompt_text()
-                },
-                {"role": "user", "content": f"Extract the information from the text:\n\n{text}"}
-            ],
-            response_format={ "type": "json_object" }
+PROVIDER_BASE_URLS = {
+    "openai": None,
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "xai": "https://api.x.ai/v1",
+    "ollama": "http://localhost:11434/v1",
+}
+
+
+class DocumentMetadata(BaseModel):
+    """Structured output model for document metadata extraction."""
+    company_name: str = Field(
+        description="Counterparty company name, stripped of legal form (GmbH, AG, Ltd, e.U., SARL, etc.)"
+    )
+    document_date: str = Field(
+        description="Most relevant date (invoice date, letter date) in dd.mm.YYYY format"
+    )
+    document_type: str = Field(
+        description="ER for incoming invoice, AR for outgoing invoice, or short descriptive type"
+    )
+
+
+def get_instructor_client(config: dict):
+    """Create an instructor-wrapped client for structured LLM output.
+
+    Most providers route through the OpenAI SDK via compatible endpoints.
+    Anthropic uses its native SDK (their OpenAI compat ignores structured output).
+    """
+    provider = config["ai"]["provider"]
+    api_key = config["ai"].get("api_key", "")
+    custom_base_url = config["ai"].get("base_url", "")
+
+    supported = list(PROVIDER_BASE_URLS.keys()) + ["anthropic"]
+    if provider not in supported:
+        raise ValueError(f"Unknown provider: {provider}. Supported: {', '.join(supported)}")
+    if provider != "ollama" and not api_key:
+        raise ValueError(f"API key required for provider '{provider}'. Set ai.api_key in config.yaml.")
+
+    # Anthropic: use native SDK
+    if provider == "anthropic":
+        from anthropic import Anthropic
+        raw = Anthropic(api_key=api_key)
+        return instructor.from_anthropic(raw)
+
+    # All others: OpenAI SDK with provider-specific base_url
+    base_url = custom_base_url or PROVIDER_BASE_URLS.get(provider)
+    if provider == "ollama":
+        api_key = api_key or "ollama"
+
+    raw = OpenAI(api_key=api_key, base_url=base_url)
+    # Ollama: use JSON mode for broadest model compatibility (TOOLS requires function calling support)
+    mode = instructor.Mode.JSON if provider == "ollama" else instructor.Mode.TOOLS
+    return instructor.from_openai(raw, mode=mode)
+
+
+def build_system_prompt(config: dict) -> str:
+    """Build the extraction prompt from config values."""
+    company = config.get("company", {}).get("name", "")
+    lang = config.get("output", {}).get("language", "English")
+    er = config.get("pdf", {}).get("incoming_invoice", "ER")
+    ar = config.get("pdf", {}).get("outgoing_invoice", "AR")
+    ext = config.get("prompt_extension", "")
+
+    prompt = (
+        "You will extract the company name, document date, and document type "
+        "from the following document content. "
+        "Due to the nature of OCR text detection, the text may be noisy and contain "
+        "spelling and detection errors. Handle those as well as possible.\n\n"
+        "document_date: Find the most appropriate date (e.g. the invoice date) and "
+        "assume the correct date format according to the language and location of the document. "
+        "Return format must be: dd.mm.YYYY\n\n"
+    )
+
+    if company:
+        prompt += (
+            f'company_name: Find the name of the company that is the corresponding party '
+            f'of the document. My company name is: "{company}", avoid using my company name '
+            f'as company_name in the response. For the company_name you always strip the '
+            f'legal form (e.U., SARL, GmbH, AG, Ltd, Limited, etc.)\n\n'
         )
-    return response.choices[0].message.content
-
-def get_private_ai_content(text: str):
-    """Call the private GPT API."""
-    client = get_client()
-    try:
-        response = client.contextual_completions.chat_completion(
-            messages=[
-                {
-                    "role": "system", 
-                    "content": get_prompt_text()
-                },
-                {
-                    "role": "user", 
-                    "content": f"Extract the information from the text:\n\n{text}"
-                }
-            ],
-            use_context=False
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logging.error(f"PrivateGPT API call failed: {e}")
-        raise
-
-def post_process_private_ai_response(text: str, model: str) -> str:
-    """Post-process PrivateGPT response to extract JSON."""
-    render = None
-    
-    if model == 'ollama':
-        json_regex = r'\{(?:[^{}]|(?R))*\}'
-        match = regex.search(json_regex, text, regex.DOTALL)
-        if match:
-            render = match.group(0)
-        else:
-            # Fallback: try to find JSON without recursion
-            simple_match = re.search(r'\{[^{}]*\}', text)
-            if simple_match:
-                render = simple_match.group(0)
-            else:
-                logging.warning(f"No JSON found in PrivateGPT response: {text[:200]}...")
-                return text  # Return original if no JSON found
     else:
-        logging.error(f"failed to load PRIVATEAI_POST_PROCESSOR {model}")
-        raise Exception(f"failed to load PRIVATEAI_POST_PROCESSOR {model}")
-    
-    return render
+        prompt += (
+            "company_name: Find the name of the main company in the document. "
+            "Strip the legal form (e.U., SARL, GmbH, AG, Ltd, Limited, etc.)\n\n"
+        )
 
-def process_text_with_any_ai(text: str) -> Dict[str, str]:
-    """Process text with any available AI client."""
-    client = get_client()
-    if client is None:
-        raise ValueError("AI client not initialized. Call initialize_api_client first.")
-    
-    parsed_response = None
-    response = None
-    try:
-        if isinstance(client, OpenAI):
-            response = get_open_ai_content(text)
-        elif isinstance(client, PrivateGPTApi):
-            response = get_private_ai_content(text)
-            model = os.getenv("PRIVATEAI_POST_PROCESSOR").split(',')[0]
-            response = post_process_private_ai_response(response, model)
-        else:                
-            logging.error(f'Unknown API client: {type(client)}')
-            raise Exception(f'Unknown API client: {type(client)}')
+    prompt += (
+        f"document_type: Find the best matching type of the document. Valid document types are: "
+        f"For incoming invoices (invoices my company receives) use the term '{er}' only, nothing more. "
+        f"For outgoing invoices (invoices my company sends) use the term '{ar}', nothing more. "
+        f"For all other document types, always find a short descriptive summary/subject in {lang} language.\n\n"
+        "If a value is not found, leave it empty."
+    )
 
-        logging.info(f'Extract Response: {response}')
-        parsed_response = json.loads(response)
-        logging.info(f'API Extract Response: {parsed_response}')
+    if ext:
+        prompt += f"\n\n{ext}"
 
-        company_name = parsed_response.get('company_name', UNKNOWN_VALUE)
-        document_date = parsed_response.get('document_date', DEFAULT_DATE)
-        document_type = parsed_response.get('document_type', UNKNOWN_VALUE)
+    return prompt.strip()
 
-        # Import validation function from utils
-        from _utils import is_valid_filename
-        
-        if not is_valid_filename(company_name):
-            company_name = UNKNOWN_VALUE
-        if not is_valid_filename(document_type):
-            document_type = UNKNOWN_VALUE
-        if not is_valid_filename(document_date):
-            document_date = DEFAULT_DATE
 
-        return {"company_name": company_name, "document_date": document_date, "document_type": document_type}
+def pil_to_base64_data_uri(image: Image.Image, fmt: str = "PNG") -> str:
+    """Convert a PIL image to a base64 data URI."""
+    buf = io.BytesIO()
+    image.save(buf, format=fmt)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/{fmt.lower()};base64,{b64}"
 
-    except Exception as e:
-        logging.error(f"Error during API call: {e}")
-    
-    return {"company_name": UNKNOWN_VALUE, "document_date": DEFAULT_DATE, "document_type": UNKNOWN_VALUE}
+
+def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
+    """Extract document metadata from text using an LLM."""
+    client = get_instructor_client(config)
+    provider = config["ai"]["provider"]
+
+    kwargs = {
+        "model": config["ai"]["model"],
+        "response_model": DocumentMetadata,
+        "max_retries": config["ai"].get("max_retries", 2),
+        "temperature": config["ai"].get("temperature", 0.0),
+        "messages": [
+            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "user", "content": f"Extract the information from this text:\n\n{text}"}
+        ],
+    }
+
+    # Anthropic uses max_tokens instead of being optional
+    if provider == "anthropic":
+        kwargs["max_tokens"] = 1024
+
+    return client.chat.completions.create(**kwargs)
+
+
+def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata:
+    """Extract document metadata from page images using a vision-capable LLM."""
+    client = get_instructor_client(config)
+    provider = config["ai"]["provider"]
+
+    image_content = [
+        {"type": "image_url", "image_url": {"url": pil_to_base64_data_uri(img)}}
+        for img in images
+    ]
+
+    kwargs = {
+        "model": config["ai"]["model"],
+        "response_model": DocumentMetadata,
+        "max_retries": config["ai"].get("max_retries", 2),
+        "temperature": config["ai"].get("temperature", 0.0),
+        "messages": [
+            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Extract document metadata from these page images:"},
+                *image_content
+            ]}
+        ],
+    }
+
+    if provider == "anthropic":
+        kwargs["max_tokens"] = 1024
+
+    return client.chat.completions.create(**kwargs)
+
+
+def _build_combined_text(extraction: ExtractionResult) -> str:
+    """Merge pdfplumber text and OCR text into a single string for the AI."""
+    parts = []
+    if extraction.text.strip():
+        parts.append(extraction.text)
+    if extraction.ocr_text.strip():
+        if parts:
+            parts.append("\n--- OCR Text ---\n")
+        parts.append(extraction.ocr_text)
+    return "\n".join(parts)
+
+
+def extract_metadata_from_text_and_images(
+    text: str, images: list, config: dict
+) -> DocumentMetadata:
+    """Extract metadata from combined text + page images (multimodal)."""
+    client = get_instructor_client(config)
+    provider = config["ai"]["provider"]
+
+    image_content = [
+        {"type": "image_url", "image_url": {"url": pil_to_base64_data_uri(img)}}
+        for img in images
+    ]
+
+    kwargs = {
+        "model": config["ai"]["model"],
+        "response_model": DocumentMetadata,
+        "max_retries": config["ai"].get("max_retries", 2),
+        "temperature": config["ai"].get("temperature", 0.0),
+        "messages": [
+            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "user", "content": [
+                {"type": "text", "text": f"Extract document metadata from this text and images:\n\n{text}"},
+                *image_content,
+            ]},
+        ],
+    }
+
+    if provider == "anthropic":
+        kwargs["max_tokens"] = 1024
+
+    return client.chat.completions.create(**kwargs)
+
+
+def extract_metadata(extraction: ExtractionResult, config: dict) -> DocumentMetadata | None:
+    """Extract metadata from an ExtractionResult using the appropriate method."""
+    combined_text = _build_combined_text(extraction)
+    has_text = bool(combined_text.strip())
+    has_images = bool(extraction.images)
+
+    if has_text and has_images:
+        return extract_metadata_from_text_and_images(combined_text, extraction.images, config)
+    elif has_images:
+        return extract_metadata_from_images(extraction.images, config)
+    elif has_text:
+        return extract_metadata_from_text(combined_text, config)
+    else:
+        logging.error("No text or images available for metadata extraction")
+        return None

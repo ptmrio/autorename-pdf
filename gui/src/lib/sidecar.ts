@@ -124,7 +124,7 @@ export async function renamePdfs(
       suggestion = 'Set your AI provider API key in config.yaml under ai.api_key.';
     } else if (!stderr) {
       message = 'CLI executable not found or failed to start.';
-      suggestion = 'Reinstall the app, or run "python build.py --cli-only --nosign" if developing.';
+      suggestion = 'Re-extract the portable ZIP, or run "python build.py --cli-only --nosign" if developing.';
     }
 
     return { success: false, error_type: errorType, message, suggestion } as ErrorResult;

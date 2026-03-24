@@ -153,10 +153,11 @@ function renderFileList(state: AppState): void {
       </div>`;
   } else {
     const noFiles = pendingCount === 0;
+    const blocked = busy || noFiles || !!state.statusError;
     actionsHtml = `
       <div class="fq-actions-left">
-        <button class="btn btn-secondary btn-sm" id="btn-dry-run" ${busy || noFiles ? 'disabled' : ''}>Dry Run</button>
-        <button class="btn btn-primary btn-sm" id="btn-rename" ${busy || noFiles ? 'disabled' : ''}>
+        <button class="btn btn-secondary btn-sm" id="btn-dry-run" ${blocked ? 'disabled' : ''}>Dry Run</button>
+        <button class="btn btn-primary btn-sm" id="btn-rename" ${blocked ? 'disabled' : ''}>
           Rename ${pendingCount} File${pendingCount !== 1 ? 's' : ''}
         </button>
       </div>`;
@@ -248,7 +249,7 @@ async function runRename(dryRun: boolean): Promise<void> {
     const errStr = String(err);
     if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries')) {
       setState({ processing: false, progress: '', statusError: 'CLI executable not found' });
-      showToast('CLI executable not found. Reinstall the app, or run "python build.py --cli-only --nosign" if developing.', 'danger');
+      showToast('CLI executable not found. Re-extract the portable ZIP, or run "python build.py --cli-only --nosign" if developing.', 'danger');
     } else {
       setState({ processing: false, progress: '' });
       showToast(`Error: ${errStr}`, 'danger');
@@ -262,7 +263,7 @@ async function runRename(dryRun: boolean): Promise<void> {
     let msg = result.message;
     let statusMsg = '';
     if (result.error_type === 'sidecar_error') {
-      msg = 'CLI executable not found. Reinstall the app, or run "python build.py --cli-only --nosign" if developing.';
+      msg = 'CLI executable not found. Re-extract the portable ZIP, or run "python build.py --cli-only --nosign" if developing.';
       statusMsg = 'CLI executable not found';
     } else if (result.error_type === 'config_error') {
       msg = 'config.yaml missing or invalid — copy config.yaml.example and add your API key';
@@ -282,14 +283,25 @@ async function runRename(dryRun: boolean): Promise<void> {
 
   if (dryRun) {
     setState({ dryRunResult: batch });
-    showToast(`Preview: ${batch.renamed} to rename, ${batch.skipped} to skip`, 'info');
+    if (batch.renamed === 0 && batch.skipped > 0) {
+      showToast('Preview: all files already correctly named', 'info');
+    } else {
+      showToast(`Preview: ${batch.renamed} to rename, ${batch.skipped} to skip`, 'info');
+    }
   } else {
     // Derive undo directory from first file's parent path
     const firstPath = state.files[0]?.path;
     const undoDir = firstPath ? firstPath.replace(/[\\/][^\\/]+$/, '') : null;
-    setState({ lastResult: batch, undoDirectory: undoDir, lastBatchId: batch.batch_id ?? null });
+    // Only enable undo when files were actually renamed
+    if (batch.renamed > 0) {
+      setState({ lastResult: batch, undoDirectory: undoDir, lastBatchId: batch.batch_id ?? null });
+    } else {
+      setState({ lastResult: batch, undoDirectory: null, lastBatchId: null });
+    }
     if (batch.failed > 0) {
       showToast(`${batch.renamed} renamed, ${batch.failed} failed`, 'warning');
+    } else if (batch.renamed === 0 && batch.skipped > 0) {
+      showToast('All files already correctly named', 'info');
     } else {
       showToast(`${batch.renamed} files renamed successfully`, 'success');
     }
@@ -298,6 +310,10 @@ async function runRename(dryRun: boolean): Promise<void> {
 
 async function handleUndo(): Promise<void> {
   const { undoDirectory, lastBatchId } = getState();
+  if (!lastBatchId) {
+    showToast('Nothing to undo', 'info');
+    return;
+  }
   setState({ processing: true, progress: 'Undoing...' });
 
   try {

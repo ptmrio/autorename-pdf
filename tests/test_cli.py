@@ -28,6 +28,13 @@ _preprocess_argv = _mod._preprocess_argv
 _redact_config = _mod._redact_config
 _validate_config = _mod._validate_config
 _handle_config = _mod._handle_config
+_handle_rename = _mod._handle_rename
+_handle_undo = _mod._handle_undo
+_main = _mod.main
+get_base_directory = _mod.get_base_directory
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import assert_batch_result_schema, assert_error_result_schema, assert_undo_result_schema, assert_batch_list_schema
 
 
 # ---------------------------------------------------------------------------
@@ -720,3 +727,347 @@ class TestBackwardCompatibility:
         args = parser.parse_args(argv)
         assert args.subcommand == "rename"
         assert args.paths == ["a.pdf", "b.pdf", "c.pdf"]
+
+
+# ---------------------------------------------------------------------------
+# 9. Handler-level tests
+# ---------------------------------------------------------------------------
+
+class TestHandleRename:
+    """Test _handle_rename JSON output contract and exit codes."""
+
+    @patch("autorename_pdf.process_pdf")
+    @patch("autorename_pdf.collect_pdf_files", return_value=["/tmp/test.pdf"])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_success(self, mock_bd, mock_load, mock_collect, mock_proc, capsys, sample_config):
+        mock_load.return_value = sample_config
+        mock_proc.return_value = FileResult(
+            file="/tmp/test.pdf", status="renamed",
+            new_name="20240315 ACME ER.pdf",
+            new_path="/tmp/20240315 ACME ER.pdf",
+            company="ACME", date="2024-03-15", doc_type="ER",
+            provider="openai", model="gpt-5.4",
+        )
+
+        args = argparse.Namespace(
+            config_path=None, paths=["/tmp/test.pdf"], dry_run=False,
+            recursive=False, quiet=False, provider=None, model=None,
+            vision=False, text_only=False, ocr=False, output="json",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert_batch_result_schema(data)
+        assert data["success"] is True
+        assert data["total"] == 1
+        assert data["renamed"] == 1
+        assert data["files"][0]["company"] == "ACME"
+
+    @patch("autorename_pdf.load_yaml_config", return_value=None)
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_no_config(self, mock_bd, mock_load, capsys):
+        args = argparse.Namespace(config_path=None, paths=["f.pdf"], dry_run=False,
+                                  recursive=False, quiet=False, provider=None, model=None,
+                                  vision=False, text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        data = json.loads(capsys.readouterr().out)
+        assert_error_result_schema(data)
+        assert data["error_type"] == "config_error"
+
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_no_paths(self, mock_bd, mock_load, capsys, sample_config):
+        mock_load.return_value = sample_config
+        args = argparse.Namespace(config_path=None, paths=[], dry_run=False,
+                                  recursive=False, quiet=False, provider=None, model=None,
+                                  vision=False, text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.USAGE_ERROR
+        data = json.loads(capsys.readouterr().out)
+        assert_error_result_schema(data)
+
+    @patch("autorename_pdf.collect_pdf_files", return_value=[])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_no_pdfs_found(self, mock_bd, mock_load, mock_collect, capsys, sample_config):
+        mock_load.return_value = sample_config
+        args = argparse.Namespace(config_path=None, paths=["/empty/dir"], dry_run=False,
+                                  recursive=False, quiet=False, provider=None, model=None,
+                                  vision=False, text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.NO_FILES
+        data = json.loads(capsys.readouterr().out)
+        assert_error_result_schema(data)
+
+    @patch("autorename_pdf.process_pdf")
+    @patch("autorename_pdf.collect_pdf_files", return_value=["/tmp/a.pdf", "/tmp/b.pdf"])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_partial_failure(self, mock_bd, mock_load, mock_collect, mock_proc, capsys, sample_config):
+        mock_load.return_value = sample_config
+        mock_proc.side_effect = [
+            FileResult(file="/tmp/a.pdf", status="renamed", new_name="20240315 ACME ER.pdf",
+                       new_path="/tmp/20240315 ACME ER.pdf", company="ACME", date="2024-03-15",
+                       doc_type="ER", provider="openai", model="gpt-5.4"),
+            FileResult(file="/tmp/b.pdf", status="failed", error="No content",
+                       provider="openai", model="gpt-5.4"),
+        ]
+
+        args = argparse.Namespace(config_path=None, paths=["/tmp/a.pdf", "/tmp/b.pdf"],
+                                  dry_run=False, recursive=False, quiet=False,
+                                  provider=None, model=None, vision=False,
+                                  text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.PARTIAL_FAILURE
+        data = json.loads(capsys.readouterr().out)
+        assert_batch_result_schema(data)
+        assert data["renamed"] == 1
+        assert data["failed"] == 1
+
+    @patch("autorename_pdf.process_pdf")
+    @patch("autorename_pdf.collect_pdf_files", return_value=["/tmp/a.pdf"])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_json_all_fail(self, mock_bd, mock_load, mock_collect, mock_proc, capsys, sample_config):
+        mock_load.return_value = sample_config
+        mock_proc.return_value = FileResult(
+            file="/tmp/a.pdf", status="failed", error="No content",
+            provider="openai", model="gpt-5.4",
+        )
+
+        args = argparse.Namespace(config_path=None, paths=["/tmp/a.pdf"], dry_run=False,
+                                  recursive=False, quiet=False, provider=None, model=None,
+                                  vision=False, text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.GENERAL_ERROR
+
+    @patch("autorename_pdf.process_pdf")
+    @patch("autorename_pdf.collect_pdf_files", return_value=["/tmp/test.pdf"])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_dry_run_json(self, mock_bd, mock_load, mock_collect, mock_proc, capsys, sample_config):
+        mock_load.return_value = sample_config
+        mock_proc.return_value = FileResult(
+            file="/tmp/test.pdf", status="renamed",
+            new_name="20240315 ACME ER.pdf", new_path="/tmp/20240315 ACME ER.pdf",
+            company="ACME", date="2024-03-15", doc_type="ER",
+            provider="openai", model="gpt-5.4",
+        )
+
+        args = argparse.Namespace(config_path=None, paths=["/tmp/test.pdf"], dry_run=True,
+                                  recursive=False, quiet=False, provider=None, model=None,
+                                  vision=False, text_only=False, ocr=False, output="json")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_rename(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        data = json.loads(capsys.readouterr().out)
+        assert data["dry_run"] is True
+        assert data["batch_id"] is None
+
+    @patch("autorename_pdf.process_pdf")
+    @patch("autorename_pdf.collect_pdf_files", return_value=["/tmp/test.pdf"])
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_cli_overrides_applied(self, mock_bd, mock_load, mock_collect, mock_proc, capsys, sample_config):
+        mock_load.return_value = sample_config
+        mock_proc.return_value = FileResult(
+            file="/tmp/test.pdf", status="renamed",
+            new_name="test.pdf", new_path="/tmp/test.pdf",
+            company="X", date="2024-01-01", doc_type="ER",
+            provider="anthropic", model="claude-sonnet-4-6",
+        )
+
+        args = argparse.Namespace(
+            config_path=None, paths=["/tmp/test.pdf"], dry_run=False,
+            recursive=False, quiet=False, output="json",
+            provider="anthropic", model="claude-sonnet-4-6",
+            vision=True, text_only=False, ocr=True,
+        )
+        with pytest.raises(SystemExit):
+            _handle_rename(args, "json")
+
+        # Check that config was mutated before process_pdf was called
+        call_args = mock_proc.call_args
+        config_used = call_args[0][1]  # second positional arg
+        assert config_used["ai"]["provider"] == "anthropic"
+        assert config_used["ai"]["model"] == "claude-sonnet-4-6"
+        assert config_used["pdf"]["vision"] is True
+        assert config_used["pdf"]["ocr"] is True
+
+
+class TestHandleUndo:
+    """Test _handle_undo JSON output contract and exit codes."""
+
+    def test_json_no_log(self, tmp_path, capsys):
+        args = argparse.Namespace(directory=str(tmp_path), list_batches=False,
+                                  batch=None, undo_all=False)
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_undo(args, "json")
+
+        assert exc_info.value.code == ExitCode.NO_FILES
+        data = json.loads(capsys.readouterr().out)
+        assert_error_result_schema(data)
+
+    def test_json_success(self, tmp_path, capsys):
+        # Create a renamed file and undo log
+        renamed = tmp_path / "20240315 ACME ER.pdf"
+        renamed.write_bytes(b"%PDF-1.4 test")
+        original = str(tmp_path / "original.pdf")
+
+        undo_log = tmp_path / ".autorename-log.json"
+        undo_log.write_text(json.dumps({
+            "version": 2,
+            "batches": [{
+                "batch_id": "20240315T120000-abc123",
+                "timestamp": "2024-03-15T12:00:00",
+                "undone": False,
+                "files": [{
+                    "old_path": original,
+                    "new_path": str(renamed),
+                    "timestamp": "2024-03-15T12:00:00",
+                }]
+            }]
+        }))
+
+        args = argparse.Namespace(directory=str(tmp_path), list_batches=False,
+                                  batch=None, undo_all=False)
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_undo(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        data = json.loads(capsys.readouterr().out)
+        assert_undo_result_schema(data)
+        assert data["restored"] >= 1
+
+    def test_list_json(self, tmp_path, capsys):
+        undo_log = tmp_path / ".autorename-log.json"
+        undo_log.write_text(json.dumps({
+            "version": 2,
+            "batches": [{
+                "batch_id": "20240315T120000-abc123",
+                "timestamp": "2024-03-15T12:00:00",
+                "undone": False,
+                "files": [{"old_path": "a.pdf", "new_path": "b.pdf", "timestamp": "2024-03-15T12:00:00"}]
+            }]
+        }))
+
+        args = argparse.Namespace(directory=str(tmp_path), list_batches=True,
+                                  batch=None, undo_all=False)
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_undo(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        data = json.loads(capsys.readouterr().out)
+        assert_batch_list_schema(data)
+        assert len(data["batches"]) == 1
+
+    def test_undo_all(self, tmp_path, capsys):
+        f1 = tmp_path / "20240315 ACME ER.pdf"
+        f1.write_bytes(b"%PDF-1.4 test")
+        f2 = tmp_path / "20240316 Globex AR.pdf"
+        f2.write_bytes(b"%PDF-1.4 test")
+
+        undo_log = tmp_path / ".autorename-log.json"
+        undo_log.write_text(json.dumps({
+            "version": 2,
+            "batches": [
+                {"batch_id": "20240315T120000-aaa111", "timestamp": "2024-03-15T12:00:00",
+                 "undone": False, "files": [{"old_path": str(tmp_path / "orig1.pdf"),
+                 "new_path": str(f1), "timestamp": "2024-03-15T12:00:00"}]},
+                {"batch_id": "20240316T120000-bbb222", "timestamp": "2024-03-16T12:00:00",
+                 "undone": False, "files": [{"old_path": str(tmp_path / "orig2.pdf"),
+                 "new_path": str(f2), "timestamp": "2024-03-16T12:00:00"}]},
+            ]
+        }))
+
+        args = argparse.Namespace(directory=str(tmp_path), list_batches=False,
+                                  batch=None, undo_all=True)
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_undo(args, "json")
+
+        assert exc_info.value.code == ExitCode.SUCCESS
+        data = json.loads(capsys.readouterr().out)
+        assert_undo_result_schema(data)
+        assert data["restored"] == 2
+
+
+class TestMain:
+    """Test main() entry point routing."""
+
+    @patch("autorename_pdf._handle_rename")
+    @patch("autorename_pdf.setup_logging")
+    def test_routes_rename(self, mock_log, mock_handler):
+        mock_handler.side_effect = SystemExit(0)
+        with patch("sys.argv", ["prog", "rename", "file.pdf"]):
+            with pytest.raises(SystemExit):
+                _main()
+        mock_handler.assert_called_once()
+
+    @patch("autorename_pdf._handle_undo")
+    @patch("autorename_pdf.setup_logging")
+    def test_routes_undo(self, mock_log, mock_handler):
+        mock_handler.side_effect = SystemExit(0)
+        with patch("sys.argv", ["prog", "undo"]):
+            with pytest.raises(SystemExit):
+                _main()
+        mock_handler.assert_called_once()
+
+    @patch("autorename_pdf._handle_config")
+    @patch("autorename_pdf.setup_logging")
+    def test_routes_config(self, mock_log, mock_handler):
+        mock_handler.side_effect = SystemExit(0)
+        with patch("sys.argv", ["prog", "config", "show"]):
+            with pytest.raises(SystemExit):
+                _main()
+        mock_handler.assert_called_once()
+
+    @patch("autorename_pdf.setup_logging")
+    def test_no_args_shows_help(self, mock_log, capsys):
+        with patch("sys.argv", ["prog"]):
+            with pytest.raises(SystemExit) as exc_info:
+                _main()
+        assert exc_info.value.code == ExitCode.USAGE_ERROR
+
+    @patch("autorename_pdf._handle_undo")
+    @patch("autorename_pdf.setup_logging")
+    def test_legacy_undo_flag(self, mock_log, mock_handler):
+        mock_handler.side_effect = SystemExit(0)
+        with patch("sys.argv", ["prog", "--undo"]):
+            with pytest.raises(SystemExit):
+                _main()
+        mock_handler.assert_called_once()
+
+
+class TestGetBaseDirectory:
+    """Test get_base_directory resolution."""
+
+    def test_with_config_path(self):
+        result = get_base_directory("/some/dir/config.yaml")
+        assert result == os.path.dirname(os.path.abspath("/some/dir/config.yaml"))
+
+    def test_dev_mode(self):
+        result = get_base_directory(None)
+        # In dev mode, returns directory of the script file
+        assert os.path.isdir(result)
+
+    def test_frozen_mode(self):
+        with patch.object(sys, "frozen", True, create=True):
+            with patch.object(sys, "executable", "/path/to/autorename-pdf.exe"):
+                result = get_base_directory(None)
+        assert result == "/path/to"

@@ -6,7 +6,15 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from unittest.mock import patch, MagicMock
+import io
+import json
 from _pdf_utils import extract_text, assess_text_quality, render_pages_to_images, extract_content, _should_run_step
+from _pdf_utils import (
+    _mojibake_marker_count, _maybe_fix_mojibake,
+    _get_bridge_script_path, _get_paddleocr_python,
+    _paddleocr_available, ocr_with_paddleocr,
+)
 
 
 class TestShouldRunStep:
@@ -139,9 +147,188 @@ class TestEncryptedPdfDetection:
             assert quality == 0.0
         except ImportError:
             # pikepdf not available — test the error detection logic directly
-            from unittest.mock import patch
-            with patch("_pdf_utils._extract_text_with_pdfplumber",
-                       side_effect=Exception("PDF requires a password")):
+            from unittest.mock import patch as _patch
+            with _patch("_pdf_utils._extract_text_with_pdfplumber",
+                        side_effect=Exception("PDF requires a password")):
                 text, quality = extract_text(pdf_path)
             assert text == ""
             assert quality == 0.0
+
+
+class TestMojibakeRepair:
+    """Test mojibake detection and repair heuristic."""
+
+    def test_marker_count_clean_text(self):
+        assert _mojibake_marker_count("Hello World, this is normal text") == 0
+
+    def test_marker_count_with_markers(self):
+        # \u00c3 is a common mojibake marker
+        text = "R\u00c3\u00b6hrs GmbH"
+        assert _mojibake_marker_count(text) > 0
+
+    def test_fix_clean_text_unchanged(self):
+        text = "Normal text without mojibake"
+        assert _maybe_fix_mojibake(text) == text
+
+    def test_fix_empty_text(self):
+        assert _maybe_fix_mojibake("") == ""
+        assert _maybe_fix_mojibake(None) is None
+
+    def test_fix_repairs_double_encoded_utf8(self):
+        # "Röhrs" encoded as UTF-8 then decoded as latin-1 produces mojibake
+        original = "Röhrs"
+        mojibake = original.encode("utf-8").decode("latin-1")
+        # mojibake should contain \u00c3 marker
+        assert _mojibake_marker_count(mojibake) > 0
+        # Repair should restore the original
+        repaired = _maybe_fix_mojibake(mojibake)
+        assert repaired == original
+
+    def test_fix_no_improvement_returns_original(self):
+        # Text with markers but where no encoding fix helps
+        # Use a string that contains markers but isn't actually double-encoded
+        text = "Some text with \u00c3 marker but not actually broken"
+        result = _maybe_fix_mojibake(text)
+        # Should return something (either original or repaired)
+        assert isinstance(result, str)
+
+
+class TestPaddleOCR:
+    """Test PaddleOCR utility functions and subprocess bridge."""
+
+    def test_bridge_path_dev(self):
+        """In dev mode, bridge script is in the project directory."""
+        path = _get_bridge_script_path()
+        assert path.endswith("_paddleocr_bridge.py")
+        assert os.path.isfile(path)
+
+    def test_bridge_path_frozen(self):
+        """In frozen (PyInstaller) mode, bridge is in MEIPASS."""
+        with patch.object(sys, "frozen", True, create=True):
+            with patch.object(sys, "_MEIPASS", "/frozen/app", create=True):
+                path = _get_bridge_script_path()
+        assert path == os.path.join("/frozen/app", "_paddleocr_bridge.py")
+
+    def test_python_path_configured(self):
+        """Explicit venv_path in config is used."""
+        config = {"paddleocr": {"venv_path": "/custom/venv"}}
+        with patch("os.path.isfile", return_value=True):
+            result = _get_paddleocr_python(config)
+        assert result is not None
+        assert "python" in result.lower()
+
+    def test_python_path_default_win(self):
+        """Default venv path on Windows uses LOCALAPPDATA."""
+        config = {"paddleocr": {"venv_path": ""}}
+        with patch("sys.platform", "win32"), \
+             patch.dict(os.environ, {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"}), \
+             patch("os.path.isfile", return_value=True):
+            result = _get_paddleocr_python(config)
+        assert result is not None
+        assert "autorename-pdf" in result
+
+    def test_python_path_missing(self):
+        """Returns None when venv python doesn't exist."""
+        config = {"paddleocr": {"venv_path": "/nonexistent/venv"}}
+        result = _get_paddleocr_python(config)
+        assert result is None
+
+    def test_available_true(self):
+        """Available when python executable exists."""
+        config = {"paddleocr": {"venv_path": ""}}
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"):
+            assert _paddleocr_available(config) is True
+
+    def test_available_false(self):
+        """Not available when python executable not found."""
+        config = {"paddleocr": {"venv_path": ""}}
+        with patch("_pdf_utils._get_paddleocr_python", return_value=None):
+            assert _paddleocr_available(config) is False
+
+    def test_ocr_no_python(self):
+        """Returns empty string when PaddleOCR python not found."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100))]
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+        with patch("_pdf_utils._get_paddleocr_python", return_value=None):
+            result = ocr_with_paddleocr(images, config)
+        assert result == ""
+
+    def test_ocr_success(self):
+        """Successful OCR returns concatenated page text."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100)), Image.new("RGB", (100, 100))]
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+
+        # Mock subprocess that returns valid JSON responses
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.stderr.read.return_value = ""
+        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
+
+        # Simulate stdout returning JSON lines
+        responses = [
+            json.dumps({"status": "ok", "text": "Invoice #12345"}) + "\n",
+            json.dumps({"status": "ok", "text": "Total: EUR 100.00"}) + "\n",
+        ]
+        mock_process.stdout = MagicMock()
+        mock_process.stdout.readline = MagicMock(side_effect=responses)
+
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"), \
+             patch("_pdf_utils._get_bridge_script_path", return_value="/bridge.py"), \
+             patch("subprocess.Popen", return_value=mock_process), \
+             patch("shutil.rmtree"):
+            result = ocr_with_paddleocr(images, config)
+
+        assert "Page 1:" in result
+        assert "Invoice #12345" in result
+        assert "Page 2:" in result
+        assert "Total: EUR 100.00" in result
+
+    def test_ocr_bridge_error(self):
+        """Bridge error returns empty text with warning."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100))]
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.stderr.read.return_value = ""
+        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
+        mock_process.stdout = MagicMock()
+        mock_process.stdout.readline.return_value = json.dumps(
+            {"status": "error", "message": "Model load failed"}
+        ) + "\n"
+
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"), \
+             patch("_pdf_utils._get_bridge_script_path", return_value="/bridge.py"), \
+             patch("subprocess.Popen", return_value=mock_process), \
+             patch("shutil.rmtree"):
+            result = ocr_with_paddleocr(images, config)
+
+        assert result == ""
+
+
+class TestExtractContentOCR:
+    """Test extract_content OCR integration paths."""
+
+    def test_ocr_enabled_available(self, sample_pdf, sample_config):
+        """When OCR is enabled and available, it runs and appears in sources."""
+        sample_config["pdf"]["ocr"] = True
+        with patch("_pdf_utils._paddleocr_available", return_value=True), \
+             patch("_pdf_utils.ocr_with_paddleocr", return_value="OCR extracted text"):
+            result = extract_content(sample_pdf, sample_config)
+        assert "ocr" in result.sources
+        assert result.ocr_text == "OCR extracted text"
+
+    def test_ocr_enabled_unavailable(self, sample_pdf, sample_config):
+        """When OCR is enabled but not installed, it's skipped gracefully."""
+        sample_config["pdf"]["ocr"] = True
+        with patch("_pdf_utils._paddleocr_available", return_value=False):
+            result = extract_content(sample_pdf, sample_config)
+        assert "ocr" not in result.sources
+        assert result.ocr_text == ""

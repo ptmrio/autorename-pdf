@@ -134,6 +134,67 @@ class TestGetInstructorClient:
         assert "generativelanguage.googleapis.com" in call_args.kwargs["base_url"]
 
 
+class TestExtractMetadataProviderKwargs:
+    """Test that provider-specific kwargs are applied correctly."""
+
+    @patch("_ai_processing.get_instructor_client")
+    @patch("_ai_processing.build_system_prompt", return_value="test prompt")
+    def test_anthropic_adds_max_tokens(self, mock_prompt, mock_client, sample_config):
+        """Anthropic provider includes max_tokens in API call."""
+        sample_config["ai"]["provider"] = "anthropic"
+        mock_completions = MagicMock()
+        mock_completions.create.return_value = DocumentMetadata(
+            company_name="Test", document_date="01.01.2024", document_type="ER"
+        )
+        mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
+
+        from _ai_processing import extract_metadata_from_text
+        extract_metadata_from_text("test text", sample_config)
+
+        call_kwargs = mock_completions.create.call_args[1]
+        assert call_kwargs.get("max_tokens") == 1024
+
+    @patch("_ai_processing.get_instructor_client")
+    @patch("_ai_processing.build_system_prompt", return_value="test prompt")
+    def test_openai_no_max_tokens(self, mock_prompt, mock_client, sample_config):
+        """OpenAI provider does NOT include max_tokens."""
+        mock_completions = MagicMock()
+        mock_completions.create.return_value = DocumentMetadata(
+            company_name="Test", document_date="01.01.2024", document_type="ER"
+        )
+        mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
+
+        from _ai_processing import extract_metadata_from_text
+        extract_metadata_from_text("test text", sample_config)
+
+        call_kwargs = mock_completions.create.call_args[1]
+        assert "max_tokens" not in call_kwargs
+
+    @patch("_ai_processing.get_instructor_client")
+    @patch("_ai_processing.build_system_prompt", return_value="test prompt")
+    def test_vision_extraction_kwargs(self, mock_prompt, mock_client, sample_config):
+        """Vision extraction sends image_url content blocks."""
+        from PIL import Image
+        mock_completions = MagicMock()
+        mock_completions.create.return_value = DocumentMetadata(
+            company_name="Test", document_date="01.01.2024", document_type="ER"
+        )
+        mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
+
+        from _ai_processing import extract_metadata_from_images
+        images = [Image.new("RGB", (100, 100))]
+        extract_metadata_from_images(images, sample_config)
+
+        call_kwargs = mock_completions.create.call_args[1]
+        messages = call_kwargs["messages"]
+        user_msg = messages[1]
+        assert user_msg["role"] == "user"
+        # Content should be a list with text + image_url blocks
+        assert isinstance(user_msg["content"], list)
+        image_blocks = [c for c in user_msg["content"] if c.get("type") == "image_url"]
+        assert len(image_blocks) == 1
+
+
 class TestBuildCombinedText:
     def test_text_only(self):
         extraction = ExtractionResult(text="Hello", ocr_text="", sources=["text"])

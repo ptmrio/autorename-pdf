@@ -1,41 +1,56 @@
-# Configuration Template - Copy this to config.yaml and fill in your values
-# OpenAI Configuration
-openai:
-  api_key: "your_openai_api_key_here"
-  model: "gpt-4o"  # or gpt-3.5-turbo, gpt-4, etc.
+# AutoRename-PDF Configuration (v2)
+# Copy this file to config.yaml and fill in your values.
+
+# AI Provider Configuration
+ai:
+  provider: "openai"              # openai, anthropic, gemini, xai, ollama
+  model: "gpt-5.4"               # Model name (provider-specific)
+  api_key: "your-api-key-here"   # Not needed for ollama
+  base_url: ""                    # Custom base URL (optional, for proxies)
+  temperature: 0.0                # 0.0 = deterministic
+  max_retries: 2                  # Retry failed API calls
+
+# --- API Key Options ---
+# You can store your API key in two ways:
+#
+# Method 1 — Directly in this file (simple, portable):
+#   api_key: "sk-your-actual-key-here"
+#
+# Method 2 — Via environment variable (secure, easy to switch):
+#   api_key: "${OPENAI_API_KEY}"
+#
+# With Method 2, set the variable in a .env file next to this config:
+#   OPENAI_API_KEY=sk-your-actual-key-here
+#   ANTHROPIC_API_KEY=sk-ant-your-key-here
+#
+# Any string value in this file can reference env vars with ${VAR_NAME}.
+# See .env.example for a template.
+
+# PDF Processing
+pdf:
+  max_pages: 3                    # Max pages to process per PDF
+  ocr: false                      # false / true / "auto" — PaddleOCR for scanned PDFs
+  vision: false                   # false / true / "auto" — send page images to LLM
+  text_quality_threshold: 0.3     # Triggers OCR/vision when set to "auto"
+  outgoing_invoice: "AR"          # Abbreviation for outgoing invoices (Accounts Receivable)
+  incoming_invoice: "ER"          # Abbreviation for incoming invoices (Expense Reports)
+
+# PaddleOCR Configuration (optional, install via setup.ps1)
+paddleocr:
+  venv_path: ""                   # Auto-detected if empty
+  languages: ["en"]               # OCR languages (e.g. ["en"], ["en", "de"])
+  use_gpu: false                  # Enable GPU acceleration
 
 # Company Information
 company:
-  name: "Your Company Name"
+  name: "Your Company Name"       # Your company name (prevents it being extracted as counterparty)
 
-# Private AI Configuration
-# Determines if you use your private GPT API (true or false)
-private_ai:
-  enabled: false
-  scheme: "http"
-  host: "localhost"
-  port: 8001
-  timeout: 720
-  post_processor: "ollama"
+# Output Settings
+output:
+  language: "English"             # Language for document type descriptions
+  date_format: "%Y%m%d"          # strftime format for filenames (YYYYMMDD)
 
-# PDF Processing Configuration
-pdf:
-  # Default name for outgoing and incoming invoices, e.g. 20220101 ACME AR.pdf
-  outgoing_invoice: "AR"
-  incoming_invoice: "ER"
-
-# Language and Localization Settings
-# Write the main language of most of the PDFs
-output_language: "English"  # or German, French, etc.
-
-# Date format for the output file name, see https://strftime.org/
-date_format: "%Y%m%d"  # YYYYMMDD format
-
-# Optional instructions for fine-tuning the prompt that extracts the invoice details
-# e.g. "My company name is also sometimes written as 'ABC'." or 
-# "If it is an incoming or outgoing invoice, add the total amount to the document_type."
+# Optional AI Prompt Extension
+# Add custom instructions to fine-tune extraction, e.g.:
+# prompt_extension: 'If it is an incoming or outgoing invoice, add the total amount like "ER 1234,56".'
 prompt_extension: ""
-
-# OCR Configuration
-# 3-letter language codes, comma separated list, according to Tesseract
-ocr_languages: "eng"  # English only, or "deu,eng" for German and English
