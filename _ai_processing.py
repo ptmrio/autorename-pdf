@@ -123,6 +123,25 @@ def pil_to_base64_data_uri(image: Image.Image, fmt: str = "PNG") -> str:
     return f"data:image/{fmt.lower()};base64,{b64}"
 
 
+def build_image_content(images: list, provider: str) -> list[dict]:
+    """Build image content blocks in the format expected by the provider."""
+    if provider == "anthropic":
+        result = []
+        for img in images:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            result.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": b64},
+            })
+        return result
+    return [
+        {"type": "image_url", "image_url": {"url": pil_to_base64_data_uri(img)}}
+        for img in images
+    ]
+
+
 def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
     """Extract document metadata from text using an LLM."""
     client = get_instructor_client(config)
@@ -151,10 +170,7 @@ def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata
     client = get_instructor_client(config)
     provider = config["ai"]["provider"]
 
-    image_content = [
-        {"type": "image_url", "image_url": {"url": pil_to_base64_data_uri(img)}}
-        for img in images
-    ]
+    image_content = build_image_content(images, provider)
 
     kwargs = {
         "model": config["ai"]["model"],
@@ -195,10 +211,7 @@ def extract_metadata_from_text_and_images(
     client = get_instructor_client(config)
     provider = config["ai"]["provider"]
 
-    image_content = [
-        {"type": "image_url", "image_url": {"url": pil_to_base64_data_uri(img)}}
-        for img in images
-    ]
+    image_content = build_image_content(images, provider)
 
     kwargs = {
         "model": config["ai"]["model"],

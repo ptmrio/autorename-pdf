@@ -119,8 +119,8 @@ class TestBuildParser:
 
     def test_rename_model_override(self):
         parser = build_parser()
-        args = parser.parse_args(["rename", "f.pdf", "--model", "gpt-4o"])
-        assert args.model == "gpt-4o"
+        args = parser.parse_args(["rename", "f.pdf", "--model", "gpt-5.4-mini"])
+        assert args.model == "gpt-5.4-mini"
 
     def test_rename_vision_flag(self):
         parser = build_parser()
@@ -285,7 +285,7 @@ class TestFileResult:
             date="2024-03-15",
             doc_type="ER",
             provider="openai",
-            model="gpt-4o",
+            model="gpt-5.4-mini",
         )
         d = r.to_dict()
         assert d["file"] == "/path/to/invoice.pdf"
@@ -296,7 +296,7 @@ class TestFileResult:
         assert d["date"] == "2024-03-15"
         assert d["doc_type"] == "ER"
         assert d["provider"] == "openai"
-        assert d["model"] == "gpt-4o"
+        assert d["model"] == "gpt-5.4-mini"
         assert d["error"] is None
 
     def test_to_dict_failed(self):
@@ -559,7 +559,7 @@ class TestValidateConfig:
         assert any(i["field"] == "company.name" for i in result["issues"])
 
     def test_valid_config(self):
-        config = {"ai": {"provider": "openai", "api_key": "key", "model": "gpt-4o"},
+        config = {"ai": {"provider": "openai", "api_key": "key", "model": "gpt-5.4-mini"},
                   "company": {"name": "Acme Corp"}}
         result = _validate_config(config, "config.yaml")
         assert result["valid"] is True
@@ -605,7 +605,7 @@ class TestHandleConfigValidate:
     @patch("autorename_pdf.get_base_directory", return_value="/fake")
     def test_config_validate_json_valid(self, mock_basedir, mock_load, capsys):
         mock_load.return_value = {
-            "ai": {"provider": "openai", "api_key": "key", "model": "gpt-4o"},
+            "ai": {"provider": "openai", "api_key": "key", "model": "gpt-5.4-mini"},
             "company": {"name": "Acme"},
         }
         args = argparse.Namespace(config_path=None, config_action="validate", subcommand="config")

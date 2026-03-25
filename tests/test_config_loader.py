@@ -23,7 +23,7 @@ class TestDeepMerge:
         assert result == {"a": 1, "b": 3, "c": 4}
 
     def test_nested_merge(self):
-        defaults = {"ai": {"provider": "openai", "model": "gpt-4"}}
+        defaults = {"ai": {"provider": "openai", "model": "gpt-5.4"}}
         overrides = {"ai": {"model": "gpt-5"}}
         result = _deep_merge(defaults, overrides)
         assert result["ai"]["provider"] == "openai"
@@ -38,7 +38,7 @@ class TestDeepMerge:
 
 class TestDetectOldSchema:
     def test_detects_v1_schema(self):
-        old_config = {"openai": {"api_key": "sk-xxx", "model": "gpt-4"}}
+        old_config = {"openai": {"api_key": "sk-xxx", "model": "gpt-5.4"}}
         assert _detect_old_schema(old_config) is True
 
     def test_allows_v2_schema(self):
@@ -73,7 +73,7 @@ class TestLoadYamlConfig:
         assert result is None
 
     def test_old_schema_exits(self, tmp_path):
-        old_config = {"openai": {"api_key": "sk-xxx", "model": "gpt-4"}}
+        old_config = {"openai": {"api_key": "sk-xxx", "model": "gpt-5.4"}}
         path = str(tmp_path / "config.yaml")
         with open(path, 'w') as f:
             yaml.dump(old_config, f)
