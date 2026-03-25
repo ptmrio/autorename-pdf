@@ -52,4 +52,10 @@ describe('sidecar config path resolution', () => {
 
     await expect(getConfigPath()).resolves.toBe('D:\\runtime\\config.yaml');
   });
+
+  it('returns the resource directory for undo log', async () => {
+    const { getUndoLogDir } = await import('./sidecar');
+
+    await expect(getUndoLogDir()).resolves.toBe('D:\\runtime');
+  });
 });

@@ -249,7 +249,7 @@ class TestPaddleOCR:
         """Returns empty string when PaddleOCR python not found."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
         with patch("_pdf_utils._get_paddleocr_python", return_value=None):
             result = ocr_with_paddleocr(images, config)
         assert result == ""
@@ -258,7 +258,7 @@ class TestPaddleOCR:
         """Successful OCR returns concatenated page text."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100)), Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
 
         # Mock subprocess that returns valid JSON responses
         mock_process = MagicMock()
@@ -291,7 +291,7 @@ class TestPaddleOCR:
         """Bridge error returns empty text with warning."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "use_gpu": False}}
+        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
 
         mock_process = MagicMock()
         mock_process.stdin = MagicMock()

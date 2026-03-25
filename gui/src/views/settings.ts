@@ -77,7 +77,7 @@ const SECTIONS: SectionDef[] = [
     fields: [
       { key: 'venv_path', label: 'Venv Path', type: 'path', hint: 'Auto-detected if empty' },
       { key: 'languages', label: 'Languages', type: 'array' },
-      { key: 'use_gpu', label: 'Use GPU', type: 'boolean' },
+      { key: 'device', label: 'Device', type: 'enum', enumValues: ['auto', 'cpu', 'gpu'], hint: 'auto = GPU if available, else CPU' },
     ],
   },
   {

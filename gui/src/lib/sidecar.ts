@@ -7,6 +7,7 @@ export interface FileResult {
   new_name: string | null;
   new_path: string | null;
   error: string | null;
+  warnings: string[];
   company: string | null;
   date: string | null;
   doc_type: string | null;
@@ -133,9 +134,8 @@ export async function renamePdfs(
   return JSON.parse(output.stdout) as SidecarResult;
 }
 
-export async function undoRename(directory?: string, batchId?: string): Promise<UndoResult | ErrorResult> {
+export async function undoRename(batchId?: string): Promise<UndoResult | ErrorResult> {
   const args = ['undo', '--output', 'json'];
-  if (directory) args.push(directory);
   if (batchId) args.push('--batch', batchId);
   const command = Command.sidecar('autorename-pdf-cli', await withConfigArg(args), SIDECAR_OPTIONS);
   const output = await command.execute();
@@ -155,6 +155,10 @@ export async function getConfig(): Promise<Record<string, unknown>> {
 
 export async function getConfigPath(): Promise<string | null> {
   return getResolvedConfigPath();
+}
+
+export async function getUndoLogDir(): Promise<string> {
+  return resourceDir();
 }
 
 export async function validateConfig(): Promise<ConfigValidation> {

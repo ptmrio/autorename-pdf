@@ -1,6 +1,9 @@
 """Shared test fixtures for AutoRename-PDF."""
 
+import copy
+import json
 import os
+import sys
 import urllib.request
 import pytest
 from PIL import Image
@@ -13,6 +16,36 @@ except ImportError:
     pass
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_DIR)
+
+from _pdf_utils import _paddleocr_available
+
+
+# --- Live test prerequisite helpers ---
+
+_paddleocr_cached = None
+
+def _paddleocr_available_for_tests() -> bool:
+    """Check if PaddleOCR venv is installed (cached)."""
+    global _paddleocr_cached
+    if _paddleocr_cached is None:
+        _paddleocr_cached = _paddleocr_available({"paddleocr": {"venv_path": ""}})
+    return _paddleocr_cached
+
+
+def _ollama_vision_model() -> str | None:
+    """Return name of an installed vision-capable Ollama model, or None."""
+    try:
+        req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            data = json.loads(resp.read())
+            for m in data.get("models", []):
+                name = m.get("name", "")
+                if "-vl" in name or "vl:" in name or "llava" in name:
+                    return name
+    except Exception:
+        pass
+    return None
 
 
 # --- pytest hooks for live integration tests ---
@@ -29,6 +62,8 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "openai: tests specific to OpenAI provider")
     config.addinivalue_line("markers", "anthropic: tests specific to Anthropic provider")
     config.addinivalue_line("markers", "ollama: tests specific to local Ollama provider")
+    config.addinivalue_line("markers", "vision: tests requiring vision-capable model")
+    config.addinivalue_line("markers", "ocr: tests requiring PaddleOCR installed")
 
 
 def _ollama_available() -> bool:
@@ -101,7 +136,7 @@ def sample_config():
         "paddleocr": {
             "venv_path": "",
             "languages": ["en"],
-            "use_gpu": False,
+            "device": "auto",
         },
         "company": {
             "name": "Test Company",
@@ -243,7 +278,7 @@ def real_config():
         "paddleocr": {
             "venv_path": "",
             "languages": ["en", "de"],
-            "use_gpu": False,
+            "device": "auto",
         },
         "company": {
             "name": "Petermeir Web Solutions, Gerhard Petermeir",
@@ -323,7 +358,7 @@ def _base_live_config() -> dict:
         "paddleocr": {
             "venv_path": "",
             "languages": ["en", "de"],
-            "use_gpu": False,
+            "device": "auto",
         },
         "company": {
             "name": "Petermeir Web Solutions, Gerhard Petermeir",
@@ -373,3 +408,135 @@ def ollama_config():
     config["ai"]["model"] = model
     config["ai"]["api_key"] = ""
     return config
+
+
+# --- Vision-enabled config fixtures ---
+
+@pytest.fixture
+def openai_vision_config(openai_config):
+    """OpenAI config with vision enabled (gpt-4.1-mini supports vision)."""
+    config = copy.deepcopy(openai_config)
+    config["pdf"]["vision"] = True
+    return config
+
+
+@pytest.fixture
+def anthropic_vision_config(anthropic_config):
+    """Anthropic config with vision enabled (claude-haiku-4-5 supports vision)."""
+    config = copy.deepcopy(anthropic_config)
+    config["pdf"]["vision"] = True
+    return config
+
+
+@pytest.fixture
+def ollama_vision_config():
+    """Ollama config with a vision-capable model (auto-detected)."""
+    if not _ollama_available():
+        pytest.skip("Ollama not running at localhost:11434")
+    model = _ollama_vision_model()
+    if not model:
+        pytest.skip("No vision-capable Ollama model installed (need *-vl or llava model)")
+    config = _base_live_config()
+    config["ai"]["provider"] = "ollama"
+    config["ai"]["model"] = model
+    config["ai"]["api_key"] = ""
+    config["pdf"]["vision"] = True
+    return config
+
+
+# --- OCR-enabled config fixtures ---
+
+@pytest.fixture
+def openai_ocr_config(openai_config):
+    """OpenAI config with PaddleOCR enabled."""
+    if not _paddleocr_available_for_tests():
+        pytest.skip("PaddleOCR not available")
+    config = copy.deepcopy(openai_config)
+    config["pdf"]["ocr"] = True
+    return config
+
+
+@pytest.fixture
+def anthropic_ocr_config(anthropic_config):
+    """Anthropic config with PaddleOCR enabled."""
+    if not _paddleocr_available_for_tests():
+        pytest.skip("PaddleOCR not available")
+    config = copy.deepcopy(anthropic_config)
+    config["pdf"]["ocr"] = True
+    return config
+
+
+@pytest.fixture
+def ollama_ocr_config(ollama_config):
+    """Ollama config with PaddleOCR enabled (Max Privacy scenario)."""
+    if not _paddleocr_available_for_tests():
+        pytest.skip("PaddleOCR not available")
+    config = copy.deepcopy(ollama_config)
+    config["pdf"]["ocr"] = True
+    return config
+
+
+# --- Combined / Auto config fixtures ---
+
+@pytest.fixture
+def openai_combined_config(openai_config):
+    """OpenAI config with both OCR and vision enabled."""
+    if not _paddleocr_available_for_tests():
+        pytest.skip("PaddleOCR not available")
+    config = copy.deepcopy(openai_config)
+    config["pdf"]["ocr"] = True
+    config["pdf"]["vision"] = True
+    return config
+
+
+@pytest.fixture
+def openai_auto_config(openai_config):
+    """OpenAI config with auto mode for OCR and vision."""
+    config = copy.deepcopy(openai_config)
+    config["pdf"]["ocr"] = "auto"
+    config["pdf"]["vision"] = "auto"
+    return config
+
+
+# --- Feature config fixtures ---
+
+@pytest.fixture
+def openai_prompt_ext_config(openai_config):
+    """OpenAI config with prompt_extension for extracting invoice totals."""
+    config = copy.deepcopy(openai_config)
+    config["prompt_extension"] = (
+        'If it is an incoming or outgoing invoice, add the total amount '
+        'to the document_type like "AR 12,34" or "ER 56,78".'
+    )
+    return config
+
+
+@pytest.fixture
+def openai_german_config(openai_config):
+    """OpenAI config with German output language."""
+    config = copy.deepcopy(openai_config)
+    config["output"]["language"] = "German"
+    return config
+
+
+# --- Live data fixtures ---
+
+@pytest.fixture
+def live_harmonized_names(tmp_path):
+    """Harmonized company names YAML covering all fixture PDF companies."""
+    import yaml
+    names = {
+        "ACME": ["ACME Corporation", "Acme Corp", "ACME Inc", "ACME Corporation GmbH"],
+        "Mustermann": ["Max Mustermann", "Mustermann GmbH", "Mustermann Consulting",
+                        "Mustermann Handel", "Max Mustermann Consulting"],
+        "Springfield Nuclear": ["Springfield Power Co.", "Springfield Nuclear Power",
+                                 "Springfield Nuclear Plant"],
+        "Initech": ["Initech Solutions", "Initech Solutions AG", "Initech Corp"],
+        "Stark Industries": ["Stark Industries", "Stark Inc", "Stark"],
+        "Globex": ["Globex Corporation", "Globex Corp"],
+        "Wayne Enterprises": ["Wayne Enterprises", "Wayne Industries", "Wayne Corp"],
+    }
+    path = str(tmp_path / "harmonized-company-names.yaml")
+    with open(path, 'w') as f:
+        yaml.dump(names, f)
+    return path

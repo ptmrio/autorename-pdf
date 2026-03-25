@@ -50,7 +50,7 @@ DEFAULTS = {
     "paddleocr": {
         "venv_path": "",
         "languages": ["en"],
-        "use_gpu": False,
+        "device": "auto",
     },
     "company": {
         "name": "",
@@ -173,6 +173,26 @@ def _migrate_extraction_config(config: dict) -> dict:
     return config
 
 
+def _migrate_paddleocr_config(config: dict) -> dict:
+    """Translate old use_gpu boolean to new device enum (auto/cpu/gpu).
+
+    Logs a deprecation warning if the old key is found.
+    """
+    paddleocr = config.get("paddleocr", {})
+    use_gpu = paddleocr.pop("use_gpu", None)
+
+    if use_gpu is None:
+        return config
+
+    logging.warning(
+        "Deprecated config key 'use_gpu' in paddleocr section. "
+        "Please migrate to 'device' (auto/cpu/gpu). See config.yaml.example."
+    )
+    paddleocr.setdefault("device", "gpu" if use_gpu else "auto")
+    config["paddleocr"] = paddleocr
+    return config
+
+
 def load_yaml_config(config_path: str) -> dict[str, Any] | None:
     """Load and validate configuration from a YAML file.
 
@@ -201,6 +221,7 @@ def load_yaml_config(config_path: str) -> dict[str, Any] | None:
 
             # Migrate old extraction keys before merging
             _migrate_extraction_config(raw_config)
+            _migrate_paddleocr_config(raw_config)
 
             # Merge with defaults
             config = _deep_merge(DEFAULTS, raw_config)

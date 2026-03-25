@@ -39,7 +39,7 @@ pdf:
 paddleocr:
   venv_path: ""                   # Auto-detected if empty
   languages: ["en"]               # OCR languages (e.g. ["en"], ["en", "de"])
-  use_gpu: false                  # Enable GPU acceleration
+  device: "auto"                  # "auto" (recommended), "cpu", or "gpu"
 
 # Company Information
 company:

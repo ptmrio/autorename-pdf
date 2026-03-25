@@ -1,7 +1,7 @@
 import { getState, subscribe, addFiles, clearFiles, setState, updateFileStatuses } from '../lib/state';
 import { setupDragDrop } from '../lib/dnd';
 import { pickPdfFiles, pickFolder } from '../lib/filepicker';
-import { renamePdfs, undoRename, isErrorResult } from '../lib/sidecar';
+import { renamePdfs, undoRename, isErrorResult, getUndoLogDir } from '../lib/sidecar';
 import { applyCachedRenames } from '../lib/rename-cache';
 import { showToast } from '../lib/toast';
 import type { AppState, FileEntry } from '../lib/state';
@@ -122,6 +122,10 @@ function renderFileRow(f: FileEntry): string {
   if (error && vs === 'failed') {
     detail = `<span class="fq-error">${error}</span>`;
   }
+  const warnings = f.result?.warnings ?? [];
+  if (warnings.length > 0 && vs !== 'failed') {
+    detail += `<span class="fq-warning">\u26a0 ${warnings.join('; ')}</span>`;
+  }
 
   return `
     <div class="fq-row">
@@ -207,15 +211,15 @@ async function runRename(dryRun: boolean): Promise<void> {
     }
     setState({ processing: true, progress: 'Applying cached results\u2026' });
     try {
+      const undoLogDir = await getUndoLogDir();
       const batch = await applyCachedRenames(
         filesToRename,
+        undoLogDir,
         (line) => setState({ progress: line }),
       );
-      const firstPath = state.files[0]?.path;
-      const undoDir = firstPath ? firstPath.replace(/[\\/][^\\/]+$/, '') : null;
       setState({ processing: false, progress: '', statusError: '' });
       updateFileStatuses(batch, false);
-      setState({ lastResult: batch, dryRunResult: null, undoDirectory: undoDir, lastBatchId: batch.batch_id ?? null });
+      setState({ lastResult: batch, dryRunResult: null, lastBatchId: batch.batch_id ?? null });
       if (batch.failed > 0) {
         showToast(`${batch.renamed} renamed, ${batch.failed} failed`, 'warning');
       } else {
@@ -289,14 +293,11 @@ async function runRename(dryRun: boolean): Promise<void> {
       showToast(`Preview: ${batch.renamed} to rename, ${batch.skipped} to skip`, 'info');
     }
   } else {
-    // Derive undo directory from first file's parent path
-    const firstPath = state.files[0]?.path;
-    const undoDir = firstPath ? firstPath.replace(/[\\/][^\\/]+$/, '') : null;
     // Only enable undo when files were actually renamed
     if (batch.renamed > 0) {
-      setState({ lastResult: batch, undoDirectory: undoDir, lastBatchId: batch.batch_id ?? null });
+      setState({ lastResult: batch, lastBatchId: batch.batch_id ?? null });
     } else {
-      setState({ lastResult: batch, undoDirectory: null, lastBatchId: null });
+      setState({ lastResult: batch, lastBatchId: null });
     }
     if (batch.failed > 0) {
       showToast(`${batch.renamed} renamed, ${batch.failed} failed`, 'warning');
@@ -305,11 +306,17 @@ async function runRename(dryRun: boolean): Promise<void> {
     } else {
       showToast(`${batch.renamed} files renamed successfully`, 'success');
     }
+    // Surface per-file warnings (e.g. PaddleOCR failures)
+    const allWarnings = batch.files.flatMap((f) => f.warnings ?? []);
+    const unique = [...new Set(allWarnings)];
+    for (const w of unique) {
+      showToast(w, 'warning');
+    }
   }
 }
 
 async function handleUndo(): Promise<void> {
-  const { undoDirectory, lastBatchId } = getState();
+  const { lastBatchId } = getState();
   if (!lastBatchId) {
     showToast('Nothing to undo', 'info');
     return;
@@ -317,7 +324,7 @@ async function handleUndo(): Promise<void> {
   setState({ processing: true, progress: 'Undoing...' });
 
   try {
-    const result = await undoRename(undoDirectory ?? undefined, lastBatchId ?? undefined);
+    const result = await undoRename(lastBatchId ?? undefined);
     setState({ processing: false, progress: '' });
 
     if ('error_type' in result) {

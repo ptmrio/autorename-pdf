@@ -283,9 +283,10 @@ class TestWorkflowSimulation:
 
     @patch("autorename_pdf.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
-    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    @patch("autorename_pdf.get_base_directory")
     def test_batch_rename_json_output(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
         """Full batch rename through _handle_rename with JSON output."""
+        mock_bd.return_value = str(tmp_path)
         mock_load.return_value = sample_config
 
         # Copy 3 different fixture PDFs to tmp_path
@@ -326,9 +327,10 @@ class TestWorkflowSimulation:
 
     @patch("autorename_pdf.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
-    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    @patch("autorename_pdf.get_base_directory")
     def test_rename_then_undo(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
         """Rename files, then undo — full round-trip."""
+        mock_bd.return_value = str(tmp_path)
         mock_load.return_value = sample_config
 
         src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
@@ -354,9 +356,9 @@ class TestWorkflowSimulation:
         # On Windows, path separators may differ
         assert os.path.exists(renamed_path.replace("/", os.sep))
 
-        # Step 2: Undo
+        # Step 2: Undo — uses get_base_directory default (no explicit directory)
         undo_args = argparse.Namespace(
-            directory=str(tmp_path), list_batches=False,
+            directory=None, list_batches=False,
             batch=None, undo_all=False,
         )
         with pytest.raises(SystemExit) as exc_info:
@@ -372,9 +374,10 @@ class TestWorkflowSimulation:
 
     @patch("autorename_pdf.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
-    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    @patch("autorename_pdf.get_base_directory")
     def test_mixed_success_and_failure(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
         """Batch with one success and one failure (empty PDF)."""
+        mock_bd.return_value = str(tmp_path)
         mock_load.return_value = sample_config
 
         # Copy a good PDF and the empty PDF
@@ -402,3 +405,34 @@ class TestWorkflowSimulation:
         assert_batch_result_schema(data)
         assert data["renamed"] == 1
         assert data["failed"] == 1
+
+    @patch("autorename_pdf.extract_metadata")
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory")
+    def test_undo_log_in_base_dir_not_pdf_dir(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
+        """Undo log should be written to base directory, not the PDF's directory."""
+        pdf_dir = tmp_path / "pdfs"
+        pdf_dir.mkdir()
+        base_dir = tmp_path / "app"
+        base_dir.mkdir()
+        mock_bd.return_value = str(base_dir)
+        mock_load.return_value = sample_config
+
+        src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
+        pdf_copy = str(pdf_dir / "invoice.pdf")
+        shutil.copy2(src, pdf_copy)
+        mock_ai.return_value = DocumentMetadata(
+            company_name="ACME", document_date="15.03.2024", document_type="ER",
+        )
+
+        args = argparse.Namespace(
+            config_path=None, paths=[pdf_copy], dry_run=False,
+            recursive=False, quiet=True, provider=None, model=None,
+            vision=False, text_only=False, ocr=False, output="json",
+        )
+        with pytest.raises(SystemExit):
+            _handle_rename(args, "json")
+
+        # Undo log must be in base_dir, NOT in pdf_dir
+        assert os.path.exists(str(base_dir / ".autorename-log.json"))
+        assert not os.path.exists(str(pdf_dir / ".autorename-log.json"))

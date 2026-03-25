@@ -17,7 +17,6 @@ export interface AppState {
   lastResult: BatchResult | null;
   dryRunResult: BatchResult | null;
   statusError: string;
-  undoDirectory: string | null;
   lastBatchId: string | null;
 }
 
@@ -33,7 +32,6 @@ let state: AppState = {
   lastResult: null,
   dryRunResult: null,
   statusError: '',
-  undoDirectory: null,
   lastBatchId: null,
 };
 
@@ -64,7 +62,7 @@ export function addFiles(paths: string[]): void {
 }
 
 export function clearFiles(): void {
-  setState({ files: [], dryRunResult: null, lastResult: null, progress: '', undoDirectory: null, statusError: '', lastBatchId: null });
+  setState({ files: [], dryRunResult: null, lastResult: null, progress: '', statusError: '', lastBatchId: null });
 }
 
 function normalizePath(p: string): string {

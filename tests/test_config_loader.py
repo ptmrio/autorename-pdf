@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from _config_loader import (
     load_yaml_config, load_company_names, _detect_old_schema, _deep_merge,
-    _migrate_extraction_config, _resolve_env_vars, _interpolate_env_vars,
+    _migrate_extraction_config, _migrate_paddleocr_config,
+    _resolve_env_vars, _interpolate_env_vars,
 )
 
 
@@ -179,6 +180,51 @@ class TestMigrateExtractionConfig:
         assert result["pdf"]["vision"] == "auto"
         assert result["pdf"]["ocr"] is False
         assert "extraction_mode" not in result["pdf"]
+
+
+class TestMigratePaddleocrConfig:
+    def test_use_gpu_true_becomes_device_gpu(self):
+        config = {"paddleocr": {"use_gpu": True, "languages": ["en"]}}
+        result = _migrate_paddleocr_config(config)
+        assert result["paddleocr"]["device"] == "gpu"
+        assert "use_gpu" not in result["paddleocr"]
+
+    def test_use_gpu_false_becomes_device_auto(self):
+        config = {"paddleocr": {"use_gpu": False, "languages": ["en"]}}
+        result = _migrate_paddleocr_config(config)
+        assert result["paddleocr"]["device"] == "auto"
+        assert "use_gpu" not in result["paddleocr"]
+
+    def test_no_use_gpu_unchanged(self):
+        config = {"paddleocr": {"device": "cpu", "languages": ["en"]}}
+        result = _migrate_paddleocr_config(config)
+        assert result["paddleocr"]["device"] == "cpu"
+
+    def test_empty_paddleocr_unchanged(self):
+        config = {"paddleocr": {}}
+        result = _migrate_paddleocr_config(config)
+        assert "device" not in result["paddleocr"]
+
+    def test_device_takes_precedence_over_use_gpu(self):
+        config = {"paddleocr": {"use_gpu": True, "device": "cpu"}}
+        result = _migrate_paddleocr_config(config)
+        assert result["paddleocr"]["device"] == "cpu"
+        assert "use_gpu" not in result["paddleocr"]
+
+    def test_migration_in_load(self, tmp_path):
+        """Old use_gpu key is migrated when loading a YAML file."""
+        config = {
+            "config_version": 2,
+            "ai": {"provider": "openai", "api_key": "test"},
+            "paddleocr": {"use_gpu": True},
+        }
+        path = str(tmp_path / "config.yaml")
+        with open(path, 'w') as f:
+            yaml.dump(config, f)
+
+        result = load_yaml_config(path)
+        assert result["paddleocr"]["device"] == "gpu"
+        assert "use_gpu" not in result["paddleocr"]
 
 
 class TestLoadCompanyNames:

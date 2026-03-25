@@ -179,11 +179,16 @@ def sign_file(file_path):
         print(f"  ERROR: Signing metadata not found: {SIGNING_METADATA}")
         sys.exit(1)
 
-    run(
-        f'signtool sign /v /dlib "{dlib}" /dmdf "{SIGNING_METADATA}" '
-        f'/fd sha256 /tr {TIMESTAMP_SERVER} /td sha256 "{file_path}"',
-        shell=True,
-    )
+    run([
+        "signtool", "sign",
+        "/v",
+        "/dlib", str(dlib),
+        "/dmdf", str(SIGNING_METADATA),
+        "/fd", "sha256",
+        "/tr", TIMESTAMP_SERVER,
+        "/td", "sha256",
+        str(file_path),
+    ])
 
 
 def sign_cli_artifacts(exe_path, nosign):
@@ -206,7 +211,7 @@ def build_tauri_gui(nosign):
     # Install frontend deps if needed
     if not (GUI_DIR / "node_modules").is_dir():
         print("Installing frontend dependencies...")
-        run(["pnpm", "install", "--frozen-lockfile"], cwd=str(GUI_DIR), shell=True)
+        run([shutil.which("pnpm"), "install", "--frozen-lockfile"], cwd=str(GUI_DIR))
 
     # Stage the CLI EXE as Tauri sidecar (needed for compilation)
     # Tauri expects the source file with target-triple suffix in src-tauri/
@@ -220,8 +225,9 @@ def build_tauri_gui(nosign):
     if nosign:
         tauri_cmd.append("--no-sign")
 
+    tauri_cmd[0] = shutil.which("pnpm")
     print(f"Running: {' '.join(tauri_cmd)}")
-    run(tauri_cmd, cwd=str(GUI_DIR), shell=True)
+    run(tauri_cmd, cwd=str(GUI_DIR))
 
     # Verify the GUI EXE was produced
     gui_exe = GUI_TAURI_DIR / "target" / "release" / TAURI_GUI_EXE

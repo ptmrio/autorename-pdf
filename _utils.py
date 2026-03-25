@@ -40,6 +40,21 @@ def is_valid_filename(filename: str) -> bool:
     return True
 
 
+def sanitize_filename(filename: str) -> str:
+    """Remove or replace characters that are invalid in Windows filenames.
+
+    Strips forbidden chars, control characters, and trailing dots/spaces
+    that cause [Errno 22] on Windows.
+    """
+    # Remove control characters (U+0000–U+001F, U+007F)
+    filename = re.sub(r'[\x00-\x1f\x7f]', '', filename)
+    # Replace forbidden Windows filename characters
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Strip trailing dots and spaces (invalid on Windows)
+    filename = filename.strip('. ')
+    return filename
+
+
 def normalize_unicode(value: str) -> str:
     """Normalize user-visible text to NFC for stable comparisons and filenames."""
     return unicodedata.normalize("NFC", value) if isinstance(value, str) else value

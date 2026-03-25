@@ -12,7 +12,6 @@ beforeEach(() => {
     lastResult: null,
     dryRunResult: null,
     statusError: '',
-    undoDirectory: null,
     lastBatchId: null,
   });
 });
@@ -37,6 +36,7 @@ function makeBatchResult(
       new_name: f.new_name ?? null,
       new_path: null,
       error: null,
+      warnings: [],
       company: null,
       date: null,
       doc_type: null,

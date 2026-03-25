@@ -4,11 +4,6 @@ import type { BatchResult, FileResult } from './sidecar';
 
 const UNDO_LOG_NAME = '.autorename-log.json';
 
-function parentDir(filePath: string): string {
-  const idx = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-  return idx > 0 ? filePath.substring(0, idx) : filePath;
-}
-
 function joinPath(dir: string, name: string): string {
   const sep = dir.includes('\\') ? '\\' : '/';
   return dir + sep + name;
@@ -68,6 +63,7 @@ async function readUndoLog(logPath: string): Promise<UndoLogV2> {
  */
 export async function applyCachedRenames(
   files: FileEntry[],
+  baseDir: string,
   onProgress?: (msg: string) => void,
 ): Promise<BatchResult> {
   const results: FileResult[] = [];
@@ -87,7 +83,7 @@ export async function applyCachedRenames(
       skipped++;
       results.push(cached
         ? { ...cached, status: 'skipped' }
-        : { file: entry.path, status: 'skipped', new_name: null, new_path: null, error: null, company: null, date: null, doc_type: null, provider: null, model: null },
+        : { file: entry.path, status: 'skipped', new_name: null, new_path: null, error: null, warnings: [], company: null, date: null, doc_type: null, provider: null, model: null },
       );
       continue;
     }
@@ -111,7 +107,7 @@ export async function applyCachedRenames(
 
   // Write undo log in v2 batch format (append to existing)
   if (undoEntries.length > 0 && files.length > 0) {
-    const logPath = joinPath(parentDir(files[0].path), UNDO_LOG_NAME);
+    const logPath = joinPath(baseDir, UNDO_LOG_NAME);
     try {
       const logData = await readUndoLog(logPath);
       logData.batches.push({

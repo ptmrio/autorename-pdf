@@ -27,6 +27,7 @@ class ExtractionResult:
     quality_score: float = 0.0
     page_count: int = 0
     sources: list = field(default_factory=list)     # e.g. ["text"], ["text","ocr"], ["text","vision"]
+    warnings: list = field(default_factory=list)    # non-fatal issues (OCR failures, etc.)
 
 
 _MOJIBAKE_MARKERS = (
@@ -225,21 +226,51 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
         logging.error("PaddleOCR python not found")
         return ""
 
-    bridge = _get_bridge_script_path()
+    bridge_src = _get_bridge_script_path()
     lang = config.get("paddleocr", {}).get("languages", ["en"])[0]
-    use_gpu = config.get("paddleocr", {}).get("use_gpu", False)
-
-    cmd = [python, bridge, lang]
-    if use_gpu:
-        cmd.append("--gpu")
+    device = config.get("paddleocr", {}).get("device", "auto")
 
     tmp_dir = tempfile.mkdtemp(prefix="autorename_ocr_")
     try:
+        # PyInstaller isolation: when frozen, the bridge script lives in _MEIPASS.
+        # Python adds the script's directory to sys.path[0], so _MEIPASS becomes
+        # sys.path[0] in the child process. The bundled socket.py/_socket.pyd then
+        # shadow the venv's stdlib, causing "python311.dll conflicts" on import.
+        # Fix: copy the bridge script to a clean temp dir so sys.path[0] is clean.
+        # Also reset SetDllDirectoryW (PyInstaller bootloader sets it to _MEIPASS,
+        # which is inherited by child processes).
+        # See: https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html
+        # See: https://github.com/pyinstaller/pyinstaller/issues/3795
+        meipass = getattr(sys, '_MEIPASS', None)
+        env = os.environ.copy()
+        if meipass:
+            # Copy bridge script out of _MEIPASS to avoid polluting child sys.path
+            bridge = os.path.join(tmp_dir, os.path.basename(bridge_src))
+            shutil.copy2(bridge_src, bridge)
+
+            # Reset DLL search order (defense-in-depth)
+            if sys.platform == "win32":
+                import ctypes
+                ctypes.windll.kernel32.SetDllDirectoryW(None)
+
+            # Clean PATH and PyInstaller env vars
+            meipass_norm = os.path.normpath(meipass)
+            path_dirs = env.get("PATH", "").split(os.pathsep)
+            path_dirs = [d for d in path_dirs if os.path.normpath(d) != meipass_norm]
+            env["PATH"] = os.pathsep.join(path_dirs)
+            for var in ("_MEIPASS2", "PYTHONPATH", "PYTHONHOME"):
+                env.pop(var, None)
+        else:
+            bridge = bridge_src
+
+        cmd = [python, bridge, lang, "--device", device]
+
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            env=env,
         )
 
         all_text = []
@@ -258,8 +289,9 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
                     all_text.append(f"Page {i + 1}:\n{result['text']}")
                 else:
                     logging.warning(f"PaddleOCR error on page {i + 1}: {result.get('message', 'unknown')}")
-            except (json.JSONDecodeError, BrokenPipeError) as e:
+            except (json.JSONDecodeError, BrokenPipeError, OSError) as e:
                 logging.warning(f"PaddleOCR bridge communication error on page {i + 1}: {e}")
+                break  # Bridge is dead, no point sending more pages
 
         try:
             proc.stdin.close()
@@ -271,7 +303,7 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
 
         stderr_output = proc.stderr.read()
         if stderr_output and proc.returncode != 0:
-            logging.warning(f"PaddleOCR stderr: {stderr_output[:500]}")
+            logging.warning(f"PaddleOCR stderr: {stderr_output[-2000:]}")
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -301,6 +333,7 @@ def extract_content(pdf_path: str, config: dict) -> ExtractionResult:
     vision_setting = pdf_cfg.get("vision", False)
 
     sources = []
+    warnings = []
 
     # Step 1: Always run pdfplumber text extraction
     text, quality = extract_text(pdf_path, max_pages)
@@ -318,19 +351,28 @@ def extract_content(pdf_path: str, config: dict) -> ExtractionResult:
         images = render_pages_to_images(pdf_path, max_pages)
         if not images:
             logging.warning(f"No images rendered from {pdf_path}")
+            warnings.append("Could not render page images")
             run_ocr = False
             run_vision = False
 
     # Step 4: PaddleOCR
     if run_ocr:
         if _paddleocr_available(config):
-            ocr_text = ocr_with_paddleocr(images, config)
+            try:
+                ocr_text = ocr_with_paddleocr(images, config)
+            except Exception as e:
+                logging.warning(f"PaddleOCR failed, continuing without OCR: {e}")
+                warnings.append(f"PaddleOCR failed: {e}")
+                ocr_text = ""
             if ocr_text.strip():
                 sources.append("ocr")
             else:
-                logging.warning("PaddleOCR returned empty text")
+                if not warnings:  # Don't duplicate if we already logged a failure
+                    logging.warning("PaddleOCR returned empty text")
+                    warnings.append("PaddleOCR returned no text")
         else:
             logging.warning("PaddleOCR requested but not available")
+            warnings.append("PaddleOCR not installed — run setup.ps1 to install")
 
     # Step 5: Vision — keep images in result
     if run_vision:
@@ -345,4 +387,5 @@ def extract_content(pdf_path: str, config: dict) -> ExtractionResult:
         quality_score=quality,
         page_count=max_pages,
         sources=sources,
+        warnings=warnings,
     )

@@ -10,11 +10,16 @@ Provider selection:
     pytest tests/ --run-live --provider anthropic -v  # Cloud, ~$0.001/test
     pytest tests/ --run-live -v                       # All available providers
 
+Mode selection:
+    pytest tests/ --run-live -m vision -v             # Vision tests only
+    pytest tests/ --run-live -m ocr -v                # OCR tests only
+
 API keys are loaded from .env file (see .env.example for template).
 Ollama tests require Ollama running at localhost:11434.
 """
 
 import os
+import re
 import sys
 import shutil
 import pytest
@@ -41,6 +46,22 @@ def _extract(pdf_name: str, config: dict):
     print(f"    Date:    {metadata.document_date}")
     print(f"    Type:    {metadata.document_type}")
     return metadata
+
+
+def _extract_full(pdf_name: str, config: dict):
+    """Helper: extract + AI metadata, returning (metadata, sources, quality_score)."""
+    pdf = os.path.join(FIXTURES_DIR, pdf_name)
+    extraction = extract_content(pdf, config)
+    metadata = extract_metadata(extraction, config)
+    assert metadata is not None, f"AI returned None for {pdf_name}"
+    provider = config["ai"]["provider"]
+    model = config["ai"]["model"]
+    print(f"\n  [{provider}/{model}] {pdf_name}")
+    print(f"    Sources: {extraction.sources} | Quality: {extraction.quality_score:.2f}")
+    print(f"    Company: {metadata.company_name}")
+    print(f"    Date:    {metadata.document_date}")
+    print(f"    Type:    {metadata.document_type}")
+    return metadata, extraction.sources, extraction.quality_score
 
 
 # ---------------------------------------------------------------------------
@@ -183,3 +204,243 @@ class TestLiveFullRename:
         assert restored >= 1
         assert failed == 0
         assert os.path.exists(pdf_copy), "Original file should be restored"
+
+
+# ---------------------------------------------------------------------------
+# README Scenario 2: Cloud AI + Vision (ocr=false, vision=true)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.vision
+class TestVisionExtraction:
+    """Vision-enabled extraction: send page images to LLM."""
+
+    @pytest.mark.openai
+    def test_image_pdf_openai(self, openai_vision_config):
+        """Image-only PDF extracted via vision with OpenAI."""
+        md, sources, quality = _extract_full("image_invoice_springfield.pdf", openai_vision_config)
+        assert "vision" in sources
+        assert quality < 0.3, "Image-only PDF should have low text quality"
+        assert md.company_name.strip(), "company_name should not be empty"
+        assert md.document_date.strip(), "document_date should not be empty"
+
+    @pytest.mark.anthropic
+    def test_image_pdf_anthropic(self, anthropic_vision_config):
+        """Image-only PDF extracted via vision with Anthropic."""
+        md, sources, quality = _extract_full("image_invoice_springfield.pdf", anthropic_vision_config)
+        assert "vision" in sources
+        assert quality < 0.3
+        assert md.company_name.strip()
+        assert md.document_date.strip()
+
+    @pytest.mark.openai
+    def test_mixed_pdf_openai(self, openai_vision_config):
+        """Mixed PDF (text + logo image) with vision enabled."""
+        md, sources, _ = _extract_full("mixed_invoice_initech.pdf", openai_vision_config)
+        assert "text" in sources
+        assert "vision" in sources
+        assert "INITECH" in md.company_name.upper()
+
+    @pytest.mark.openai
+    def test_text_pdf_with_vision_openai(self, openai_vision_config):
+        """Good text PDF with vision — vision supplements, doesn't break."""
+        md, sources, _ = _extract_full("text_invoice_acme.pdf", openai_vision_config)
+        assert "text" in sources
+        assert "vision" in sources
+        assert "ACME" in md.company_name.upper()
+
+
+# ---------------------------------------------------------------------------
+# README Scenario 1: Cloud AI + PaddleOCR (ocr=true, vision=false)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.ocr
+class TestOCRExtraction:
+    """OCR-enabled extraction: PaddleOCR enhances scanned PDFs."""
+
+    @pytest.mark.openai
+    def test_image_pdf_ocr_openai(self, openai_ocr_config):
+        """Image-only PDF with OCR providing text to OpenAI."""
+        md, sources, _ = _extract_full("image_invoice_springfield.pdf", openai_ocr_config)
+        assert "ocr" in sources
+        assert md.company_name.strip(), "OCR + AI should extract a company name"
+        assert md.document_date.strip()
+
+    @pytest.mark.anthropic
+    def test_image_pdf_ocr_anthropic(self, anthropic_ocr_config):
+        """Image-only PDF with OCR providing text to Anthropic."""
+        md, sources, _ = _extract_full("image_invoice_springfield.pdf", anthropic_ocr_config)
+        assert "ocr" in sources
+        assert md.company_name.strip()
+
+    @pytest.mark.openai
+    def test_text_pdf_with_ocr(self, openai_ocr_config):
+        """Good text PDF with OCR — OCR supplements, doesn't break."""
+        md, sources, _ = _extract_full("text_invoice_acme.pdf", openai_ocr_config)
+        assert "ocr" in sources
+        assert "ACME" in md.company_name.upper()
+
+
+# ---------------------------------------------------------------------------
+# README Scenario 3: Max Privacy — Ollama + PaddleOCR (fully local)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.ollama
+@pytest.mark.ocr
+class TestOllamaLocal:
+    """Fully local pipeline: Ollama + PaddleOCR, no cloud, no API keys."""
+
+    def test_text_invoice(self, ollama_ocr_config):
+        """Text invoice through fully local pipeline."""
+        md, sources, _ = _extract_full("text_invoice_acme.pdf", ollama_ocr_config)
+        assert "ocr" in sources
+        assert md.company_name.strip()
+        assert md.document_date.strip()
+        assert md.document_type.strip()
+
+    def test_image_invoice_with_ocr(self, ollama_ocr_config):
+        """Image-only invoice — OCR provides text, Ollama extracts metadata."""
+        md, sources, quality = _extract_full("image_invoice_springfield.pdf", ollama_ocr_config)
+        assert "ocr" in sources
+        assert quality < 0.3, "Image-only PDF should have low text quality"
+        assert md.company_name.strip()
+        assert md.document_type.strip()
+
+
+# ---------------------------------------------------------------------------
+# Both OCR + Vision together (--ocr --vision)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.ocr
+@pytest.mark.vision
+class TestCombinedOCRVision:
+    """Maximum accuracy: both OCR and vision enabled simultaneously."""
+
+    @pytest.mark.openai
+    def test_image_pdf_both_openai(self, openai_combined_config):
+        """Image-only PDF with all three extraction sources."""
+        md, sources, _ = _extract_full("image_invoice_springfield.pdf", openai_combined_config)
+        assert "ocr" in sources, "OCR should have run"
+        assert "vision" in sources, "Vision should have run"
+        assert md.company_name.strip()
+
+    @pytest.mark.openai
+    def test_mixed_pdf_both_openai(self, openai_combined_config):
+        """Mixed PDF with OCR + vision — all sources combined."""
+        md, sources, _ = _extract_full("mixed_invoice_initech.pdf", openai_combined_config)
+        assert "text" in sources
+        assert "vision" in sources
+        assert "INITECH" in md.company_name.upper()
+
+
+# ---------------------------------------------------------------------------
+# Auto mode (ocr: "auto", vision: "auto") with quality threshold
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.openai
+class TestAutoMode:
+    """Auto mode: OCR/vision trigger only when text quality is below threshold."""
+
+    def test_auto_skips_on_good_text(self, openai_auto_config):
+        """Good text PDF — auto should NOT trigger OCR/vision."""
+        md, sources, quality = _extract_full("text_invoice_acme.pdf", openai_auto_config)
+        assert quality > 0.3, "Good text PDF should score above threshold"
+        assert sources == ["text"], f"Auto should skip OCR/vision, got sources={sources}"
+        assert "ACME" in md.company_name.upper()
+
+    def test_auto_triggers_on_image_pdf(self, openai_auto_config):
+        """Image-only PDF — auto SHOULD trigger vision (quality below threshold)."""
+        md, sources, quality = _extract_full("image_invoice_springfield.pdf", openai_auto_config)
+        assert quality < 0.3, "Image-only PDF should score below threshold"
+        assert "vision" in sources, "Auto should trigger vision for low-quality text"
+        assert md.company_name.strip()
+
+    def test_auto_triggers_on_minimal_text(self, openai_auto_config):
+        """Minimal text PDF — auto behavior depends on text quality score.
+
+        minimal_text.pdf may score above or below the 0.3 threshold depending
+        on content. We verify auto mode's decision is consistent with quality.
+        """
+        md, sources, quality = _extract_full("minimal_text.pdf", openai_auto_config)
+        if quality < 0.3:
+            assert len(sources) > 1, f"Auto should trigger fallback for quality {quality}"
+        else:
+            assert sources == ["text"], f"Auto should skip for quality {quality}"
+
+
+# ---------------------------------------------------------------------------
+# P1: Prompt extension — invoice totals
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.openai
+class TestPromptExtension:
+    """Prompt extension: AI adds invoice totals to document_type."""
+
+    def test_invoice_total_extracted(self, openai_prompt_ext_config):
+        """Invoice doc_type should include a monetary amount."""
+        md = _extract("text_invoice_acme.pdf", openai_prompt_ext_config)
+        assert re.search(r'\d', md.document_type), \
+            f"Expected digits in doc_type with prompt_extension, got: {md.document_type}"
+
+    def test_outgoing_ar_with_amount(self, openai_prompt_ext_config):
+        """Outgoing invoice should have invoice code + amount."""
+        md = _extract("text_outgoing_invoice_wayne.pdf", openai_prompt_ext_config)
+        # AI may classify as AR (outgoing) or ER (incoming) depending on perspective
+        assert re.search(r'[EA]R', md.document_type.upper()), \
+            f"Expected ER or AR in doc_type, got: {md.document_type}"
+        assert re.search(r'\d', md.document_type), \
+            f"Expected digits in doc_type with prompt_extension, got: {md.document_type}"
+
+    def test_letter_no_amount(self, openai_prompt_ext_config):
+        """Non-invoice should NOT get ER/AR classification."""
+        md = _extract("text_letter_globex.pdf", openai_prompt_ext_config)
+        assert md.document_type.upper() not in ["ER", "AR"]
+
+
+# ---------------------------------------------------------------------------
+# P1: Company name harmonization through live pipeline
+# ---------------------------------------------------------------------------
+
+@pytest.mark.live
+@pytest.mark.openai
+class TestLiveHarmonization:
+    """Company harmonization via process_pdf with real AI + harmonized names YAML."""
+
+    def test_harmonizes_acme(self, openai_config, live_harmonized_names, tmp_path):
+        """AI extracts 'ACME Corporation GmbH', harmonized to 'ACME'."""
+        from autorename_pdf_runner import process_pdf
+
+        src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
+        pdf_copy = str(tmp_path / "acme_invoice.pdf")
+        shutil.copy2(src, pdf_copy)
+
+        result = process_pdf(pdf_copy, openai_config, live_harmonized_names,
+                             str(tmp_path / ".autorename-log.json"),
+                             dry_run=True, batch_id="test-harmonize")
+
+        print(f"\n  Harmonization: raw company → {result.company}")
+        assert result.status == "renamed"
+        assert result.company == "ACME", \
+            f"Expected 'ACME' after harmonization, got: {result.company}"
+
+    def test_harmonizes_mustermann(self, openai_config, live_harmonized_names, tmp_path):
+        """AI extracts Mustermann variant, harmonized to 'Mustermann'."""
+        from autorename_pdf_runner import process_pdf
+
+        src = os.path.join(FIXTURES_DIR, "text_rechnung_mustermann.pdf")
+        pdf_copy = str(tmp_path / "mustermann_rechnung.pdf")
+        shutil.copy2(src, pdf_copy)
+
+        result = process_pdf(pdf_copy, openai_config, live_harmonized_names,
+                             str(tmp_path / ".autorename-log.json"),
+                             dry_run=True, batch_id="test-harmonize")
+
+        print(f"\n  Harmonization: raw company → {result.company}")
+        assert result.status == "renamed"
+        assert result.company == "Mustermann", \
+            f"Expected 'Mustermann' after harmonization, got: {result.company}"

@@ -122,13 +122,26 @@ class TestRenameInvoice:
         assert result is not None
         assert "_(1)" in result
 
-    def test_invalid_company_name(self, tmp_path, sample_config):
+    def test_invalid_company_name_sanitized(self, tmp_path, sample_config):
+        """Forbidden chars are stripped, keeping the usable portion."""
         pdf_path = str(tmp_path / "original.pdf")
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
         result = rename_invoice(
             pdf_path, 'Invalid<>Name', datetime.date(2024, 3, 15), "ER", sample_config
+        )
+        assert result is not None
+        assert "InvalidName" in result
+
+    def test_fully_invalid_company_name(self, tmp_path, sample_config):
+        """Company name with only forbidden chars falls back to Unknown."""
+        pdf_path = str(tmp_path / "original.pdf")
+        with open(pdf_path, 'w') as f:
+            f.write("fake pdf")
+
+        result = rename_invoice(
+            pdf_path, '<>:"/\\|?*', datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
         assert "Unknown" in result

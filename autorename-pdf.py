@@ -67,6 +67,7 @@ class FileResult:
     new_name: Optional[str] = None
     new_path: Optional[str] = None
     error: Optional[str] = None
+    warnings: list = field(default_factory=list)
     company: Optional[str] = None
     date: Optional[str] = None
     doc_type: Optional[str] = None
@@ -351,6 +352,8 @@ def process_pdf(
         extraction = extract_content(pdf_path, config)
         logging.info(f"Sources: {extraction.sources} | Quality: {extraction.quality_score:.2f}")
 
+        result.warnings = extraction.warnings
+
         if output:
             q = f"{extraction.quality_score:.2f}"
             _step(output, "\u2713", "green", "Text extracted", f"quality {q}")
@@ -358,6 +361,8 @@ def process_pdf(
                 _step(output, "\u2713", "green", "PaddleOCR")
             if "vision" in extraction.sources:
                 _step(output, "\u2713", "green", "Vision", "page images")
+            for w in extraction.warnings:
+                _step(output, "\u26a0", "yellow", w)
 
         if not extraction.text.strip() and not extraction.images:
             logging.warning(f"No content extracted from {pdf_path}")
@@ -428,7 +433,7 @@ examples:
   autorename-pdf *.pdf --dry-run            Preview renames without changes
   autorename-pdf ./invoices -r              Recursively process a folder
   autorename-pdf -o json *.pdf              JSON output (for scripting)
-  autorename-pdf undo                       Reverse last rename in current dir
+  autorename-pdf undo                       Reverse last rename
   autorename-pdf config show                Show current config (keys redacted)
   autorename-pdf config validate            Validate config file
 """
@@ -534,11 +539,11 @@ def build_parser() -> argparse.ArgumentParser:
         "undo",
         parents=[_shared],
         help="Reverse the last rename operation",
-        description="Reverse file renames using the undo log in the current directory.",
+        description="Reverse file renames using the undo log.",
     )
     undo_parser.add_argument(
         "directory", nargs="?", default=None,
-        help="Directory containing the undo log (default: current directory)"
+        help="Directory containing the undo log (default: application directory)"
     )
     undo_parser.add_argument(
         "--list", action="store_true", dest="list_batches",
@@ -741,7 +746,7 @@ def _handle_config(args: argparse.Namespace, output_format: str) -> None:
 
 def _handle_undo(args: argparse.Namespace, output_format: str) -> None:
     """Handle the undo subcommand."""
-    directory = getattr(args, "directory", None) or os.getcwd()
+    directory = getattr(args, "directory", None) or get_base_directory(getattr(args, "config_path", None))
     undo_log = os.path.join(directory, UNDO_LOG_NAME)
 
     if not os.path.exists(undo_log):
@@ -865,9 +870,8 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
             output_format=output_format,
         )
 
-    # Determine undo log path (in the directory of the first PDF)
-    first_pdf_dir = os.path.dirname(os.path.abspath(pdf_files[0]))
-    undo_log_path = os.path.join(first_pdf_dir, UNDO_LOG_NAME) if not dry_run else None
+    # Determine undo log path (in the application base directory, next to config.yaml)
+    undo_log_path = os.path.join(base_dir, UNDO_LOG_NAME) if not dry_run else None
 
     # Generate batch ID for this rename operation
     batch_id = generate_batch_id() if not dry_run else None

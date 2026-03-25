@@ -8,13 +8,12 @@ import os
 import json
 import logging
 import datetime
-
 import time
 
 import dateparser
 from rapidfuzz.distance import JaroWinkler
 
-from _utils import UNKNOWN_VALUE, DEFAULT_DATE, is_valid_filename, normalize_unicode
+from _utils import UNKNOWN_VALUE, DEFAULT_DATE, is_valid_filename, sanitize_filename, normalize_unicode
 from _config_loader import load_company_names
 
 # Constants
@@ -93,10 +92,10 @@ def rename_invoice(
     """
     date_format = config.get("output", {}).get("date_format", "%Y%m%d")
     pdf_path = normalize_unicode(pdf_path)
-    company_name = normalize_unicode(company_name)
-    document_type = normalize_unicode(document_type)
+    company_name = sanitize_filename(normalize_unicode(company_name))
+    document_type = sanitize_filename(normalize_unicode(document_type))
 
-    # Validate components
+    # Validate components (fall back to Unknown if sanitization left nothing usable)
     if not is_valid_filename(company_name):
         company_name = UNKNOWN_VALUE
     if not is_valid_filename(document_type):
