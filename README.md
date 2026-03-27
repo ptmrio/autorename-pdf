@@ -200,6 +200,8 @@ After running `setup.ps1`, right-click in Windows Explorer:
 
 ### Command Line
 
+![AutoRename-PDF CLI showing PDF renaming in PowerShell](screenshot/autorename-pdf-cli.png)
+
 ```bash
 # Rename a single PDF
 autorename-pdf-cli.exe "C:\path\to\file.pdf"
