@@ -295,10 +295,8 @@ The tool uses fuzzy matching (Jaro-Winkler similarity) to automatically map extr
 
 **Quick Tip:** Copy your PDF filenames, paste them into ChatGPT/Claude/Gemini with _"Create a harmonized-company-names.yaml mapping these company name variations to standardized names"_ — then save the result.
 
-<a id="ollama-setup"></a>
-
 <details>
-<summary><strong>Ollama Setup (Free Local AI)</strong></summary>
+<summary><strong><a id="ollama-setup">Ollama Setup (Free Local AI)</a></strong></summary>
 
 Ollama runs AI models entirely on your machine — no API key, no cloud, no cost per request.
 
@@ -336,10 +334,8 @@ Ollama runs AI models entirely on your machine — no API key, no cloud, no cost
 
 </details>
 
-<a id="macos--linux"></a>
-
 <details>
-<summary><strong>macOS / Linux (Run from Python Source)</strong></summary>
+<summary><strong><a id="macos--linux">macOS / Linux (Run from Python Source)</a></strong></summary>
 
 The CLI works cross-platform via Python. The GUI and context menu are Windows-only.
 
@@ -382,10 +378,8 @@ Also check out [PhraseVault](https://phrasevault.app) — a text expander and sn
 
 - [@claus82](https://github.com/claus82) — Thank you for your generous donation!
 
-<a id="developer-documentation"></a>
-
 <details>
-<summary><strong>Developer Documentation</strong></summary>
+<summary><strong><a id="developer-documentation">Developer Documentation</a></strong></summary>
 
 ## Development Setup
 
@@ -458,6 +452,32 @@ python build.py --cli-only       # Build CLI EXE only (skip GUI + packaging)
 **Build pipeline:** CLI EXE (PyInstaller) → Sign (Azure Trusted Signing) → Tauri GUI → Portable ZIP
 
 **Output** (in `Releases/`): `AutoRename-PDF-Portable-{version}.zip`
+
+## AI-Assisted Development
+
+This repository is **AI-ready** — it includes configuration and skills for [Claude Code](https://claude.ai/code) and compatible AI tools (Cursor, Gemini CLI, Codex CLI, etc.).
+
+**What's included in `.claude/`:**
+
+| Path | Purpose |
+|------|---------|
+| `CLAUDE.md` | Codebase context — architecture, commands, conventions |
+| `.claude/settings.json` | Shared permissions for common dev operations |
+| `.claude/skills/` | 4 slash-command skills (see below) |
+| `.claude/agents/pdf-debugger.md` | Specialized agent for diagnosing PDF processing issues |
+
+**Available skills:**
+
+| Skill | Description |
+|-------|-------------|
+| `/rename-pdfs <path>` | Rename PDFs from Python source (dev / cross-platform) |
+| `/rename-pdfs-exe <path>` | Rename PDFs using compiled EXE (production / Windows) |
+| `/build` | Build EXE + distribution ZIP |
+| `/test [pattern]` | Run test suite with coverage |
+
+**For end users** (release ZIP): The `rename-pdfs-exe` skill is included in the ZIP. Copy `.claude/skills/rename-pdfs-exe/` to `~/.claude/skills/` for global availability across all your projects.
+
+The [SKILL.md format](https://docs.anthropic.com/en/docs/claude-code/skills) is an open standard — these skills work with any AI tool that supports it.
 
 ## Contributing
 

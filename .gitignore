@@ -11,7 +11,8 @@ harmonized-company-names.yaml
 *.zip
 .autorename-log.json
 _impl_progress.md
-.claude/
+.claude/settings.local.json
+.claude/plugins/
 .coverage
 .pytest_cache/
 .todo/

@@ -27,6 +27,8 @@ All commands assume the venv is activated.
 
 ## AI Tool Integration
 
+- `.claude/` is committed to git — skills, agents, and shared settings are available to all developers.
+- `settings.local.json` is gitignored (personal overrides).
 - **Skill (dev)**: `/rename-pdfs <path>` — Python source, requires venv. For development and macOS/Linux.
 - **Skill (prod)**: `/rename-pdfs-exe <path>` — compiled EXE, Windows only. For production/automation.
 - Both skills dry-run first, then ask for confirmation before renaming.
