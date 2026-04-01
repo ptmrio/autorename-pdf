@@ -49,8 +49,11 @@ DEFAULTS = {
     },
     "paddleocr": {
         "venv_path": "",
-        "languages": ["en"],
+        "language": "en",
         "device": "auto",
+        "detection_model": "",
+        "det_limit_side_len": 736,
+        "cpu_threads": 4,
     },
     "company": {
         "name": "",
@@ -125,7 +128,7 @@ Key changes:
   private_ai.*       -> REMOVED (use ai.provider: "ollama")
   output_language    -> output.language
   date_format        -> output.date_format
-  ocr_languages      -> paddleocr.languages
+  ocr_languages      -> paddleocr.language
 
 New:
   ai.provider supports openai, anthropic, gemini, xai, and ollama.
@@ -193,6 +196,27 @@ def _migrate_paddleocr_config(config: dict) -> dict:
     return config
 
 
+def _migrate_paddleocr_languages(config: dict) -> dict:
+    """Translate old languages list to new language string.
+
+    Logs a deprecation warning if the old key is found.
+    """
+    paddleocr = config.get("paddleocr", {})
+    languages = paddleocr.pop("languages", None)
+
+    if languages is None:
+        return config
+
+    logging.warning(
+        "Deprecated config key 'languages' (list) in paddleocr section. "
+        "Please migrate to 'language' (single string). See config.yaml.example."
+    )
+    lang = languages[0] if languages else "en"
+    paddleocr.setdefault("language", lang)
+    config["paddleocr"] = paddleocr
+    return config
+
+
 def load_yaml_config(config_path: str) -> dict[str, Any] | None:
     """Load and validate configuration from a YAML file.
 
@@ -222,6 +246,7 @@ def load_yaml_config(config_path: str) -> dict[str, Any] | None:
             # Migrate old extraction keys before merging
             _migrate_extraction_config(raw_config)
             _migrate_paddleocr_config(raw_config)
+            _migrate_paddleocr_languages(raw_config)
 
             # Merge with defaults
             config = _deep_merge(DEFAULTS, raw_config)

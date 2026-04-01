@@ -7,7 +7,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from unittest.mock import patch, MagicMock
-import io
 import json
 from _pdf_utils import extract_text, assess_text_quality, render_pages_to_images, extract_content, _should_run_step
 from _pdf_utils import (
@@ -249,7 +248,7 @@ class TestPaddleOCR:
         """Returns empty string when PaddleOCR python not found."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
+        config = {"paddleocr": {"venv_path": "", "language": "en", "device": "auto"}}
         with patch("_pdf_utils._get_paddleocr_python", return_value=None):
             result = ocr_with_paddleocr(images, config)
         assert result == ""
@@ -258,13 +257,12 @@ class TestPaddleOCR:
         """Successful OCR returns concatenated page text."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100)), Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
+        config = {"paddleocr": {"venv_path": "", "language": "en", "device": "auto"}}
 
         # Mock subprocess that returns valid JSON responses
         mock_process = MagicMock()
         mock_process.stdin = MagicMock()
-        mock_process.stderr = MagicMock()
-        mock_process.stderr.read.return_value = ""
+        mock_process.stderr = iter([])  # iterable, matches `for line in proc.stderr:`
         mock_process.returncode = 0
         mock_process.wait.return_value = 0
 
@@ -291,12 +289,11 @@ class TestPaddleOCR:
         """Bridge error returns empty text with warning."""
         from PIL import Image
         images = [Image.new("RGB", (100, 100))]
-        config = {"paddleocr": {"venv_path": "", "languages": ["en"], "device": "auto"}}
+        config = {"paddleocr": {"venv_path": "", "language": "en", "device": "auto"}}
 
         mock_process = MagicMock()
         mock_process.stdin = MagicMock()
-        mock_process.stderr = MagicMock()
-        mock_process.stderr.read.return_value = ""
+        mock_process.stderr = iter([])
         mock_process.returncode = 0
         mock_process.wait.return_value = 0
         mock_process.stdout = MagicMock()
@@ -332,3 +329,143 @@ class TestExtractContentOCR:
             result = extract_content(sample_pdf, sample_config)
         assert "ocr" not in result.sources
         assert result.ocr_text == ""
+
+    def test_ocr_only_uses_lower_scale(self, sample_pdf, sample_config):
+        """OCR without vision renders at scale 1.5."""
+        from PIL import Image
+        sample_config["pdf"]["ocr"] = True
+        sample_config["pdf"]["vision"] = False
+        with patch("_pdf_utils.render_pages_to_images") as mock_render, \
+             patch("_pdf_utils._paddleocr_available", return_value=True), \
+             patch("_pdf_utils.ocr_with_paddleocr", return_value="text"):
+            mock_render.return_value = [Image.new("RGB", (100, 100))]
+            extract_content(sample_pdf, sample_config)
+        mock_render.assert_called_once_with(sample_pdf, 3, scale=1.5)
+
+    def test_ocr_and_vision_uses_full_scale(self, sample_pdf, sample_config):
+        """OCR + vision renders at scale 2.0."""
+        from PIL import Image
+        sample_config["pdf"]["ocr"] = True
+        sample_config["pdf"]["vision"] = True
+        with patch("_pdf_utils.render_pages_to_images") as mock_render, \
+             patch("_pdf_utils._paddleocr_available", return_value=True), \
+             patch("_pdf_utils.ocr_with_paddleocr", return_value="text"):
+            mock_render.return_value = [Image.new("RGB", (100, 100))]
+            extract_content(sample_pdf, sample_config)
+        mock_render.assert_called_once_with(sample_pdf, 3, scale=2.0)
+
+
+class TestOCRConfigPassthrough:
+    """Test that new paddleocr config keys are passed to the bridge subprocess."""
+
+    def test_config_passed_to_bridge(self):
+        """New config keys are passed as CLI args to bridge subprocess."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100))]
+        config = {
+            "paddleocr": {
+                "venv_path": "",
+                "language": "en",
+                "device": "auto",
+                "detection_model": "PP-OCRv5_server_det",
+                "det_limit_side_len": 960,
+                "cpu_threads": 8,
+            }
+        }
+
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stderr = iter([])
+        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
+        mock_process.stdout = MagicMock()
+        mock_process.stdout.readline.return_value = json.dumps(
+            {"status": "ok", "text": "test"}
+        ) + "\n"
+
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"), \
+             patch("_pdf_utils._get_bridge_script_path", return_value="/bridge.py"), \
+             patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
+             patch("shutil.rmtree"):
+            ocr_with_paddleocr(images, config)
+
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[2] == "en"  # language is first positional arg after python + bridge
+        assert "--det-model" in cmd
+        assert "PP-OCRv5_server_det" in cmd
+        assert "--det-limit" in cmd
+        assert "960" in cmd
+        assert "--cpu-threads" in cmd
+        assert "8" in cmd
+
+    def test_language_config_changes_bridge_arg(self):
+        """Changing paddleocr.language in config changes the CLI arg to the bridge."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100))]
+        config = {
+            "paddleocr": {
+                "venv_path": "",
+                "language": "de",
+                "device": "auto",
+                "detection_model": "",
+                "det_limit_side_len": 736,
+                "cpu_threads": 4,
+            }
+        }
+
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stderr = iter([])
+        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
+        mock_process.stdout = MagicMock()
+        mock_process.stdout.readline.return_value = json.dumps(
+            {"status": "ok", "text": "test"}
+        ) + "\n"
+
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"), \
+             patch("_pdf_utils._get_bridge_script_path", return_value="/bridge.py"), \
+             patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
+             patch("shutil.rmtree"):
+            ocr_with_paddleocr(images, config)
+
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[2] == "de"  # language passed as positional arg
+
+    def test_default_config_omits_det_model(self):
+        """When detection_model is empty, --det-model is not passed."""
+        from PIL import Image
+        images = [Image.new("RGB", (100, 100))]
+        config = {
+            "paddleocr": {
+                "venv_path": "",
+                "language": "en",
+                "device": "auto",
+                "detection_model": "",
+                "det_limit_side_len": 736,
+                "cpu_threads": 4,
+            }
+        }
+
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stderr = iter([])
+        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
+        mock_process.stdout = MagicMock()
+        mock_process.stdout.readline.return_value = json.dumps(
+            {"status": "ok", "text": "test"}
+        ) + "\n"
+
+        with patch("_pdf_utils._get_paddleocr_python", return_value="/some/python"), \
+             patch("_pdf_utils._get_bridge_script_path", return_value="/bridge.py"), \
+             patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
+             patch("shutil.rmtree"):
+            ocr_with_paddleocr(images, config)
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--det-model" not in cmd
+        assert "--det-limit" in cmd
+        assert "736" in cmd
+        assert "--cpu-threads" in cmd
+        assert "4" in cmd

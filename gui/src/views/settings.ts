@@ -76,8 +76,15 @@ const SECTIONS: SectionDef[] = [
     title: 'PaddleOCR',
     fields: [
       { key: 'venv_path', label: 'Venv Path', type: 'path', hint: 'Auto-detected if empty' },
-      { key: 'languages', label: 'Languages', type: 'array' },
+      { key: 'language', label: 'Language', type: 'string',
+        hint: 'e.g. "en" (English), "de"/"fr" (Latin-script), "ch" (Chinese)' },
       { key: 'device', label: 'Device', type: 'enum', enumValues: ['auto', 'cpu', 'gpu'], hint: 'auto = GPU if available, else CPU' },
+      { key: 'detection_model', label: 'Detection Model', type: 'string',
+        hint: 'Leave empty for default (mobile). Use "PP-OCRv5_server_det" for higher accuracy (more RAM)' },
+      { key: 'det_limit_side_len', label: 'Detection Limit (px)', type: 'number',
+        hint: 'Max image side for detection. Lower = less RAM (default: 736)' },
+      { key: 'cpu_threads', label: 'CPU Threads', type: 'number',
+        hint: 'Threads for OCR inference (default: 4)' },
     ],
   },
   {

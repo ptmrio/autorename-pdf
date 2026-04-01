@@ -38,8 +38,17 @@ pdf:
 # PaddleOCR Configuration (optional, install via setup.ps1)
 paddleocr:
   venv_path: ""                   # Auto-detected if empty
-  languages: ["en"]               # OCR languages (e.g. ["en"], ["en", "de"])
+  language: "en"                   # OCR language code (one language per instance)
+                                   #   "en" = English-only model (smaller, faster)
+                                   #   "de","fr","es",etc. = Latin model (all 59 Latin-script langs incl. English)
+                                   #   "ch" = Chinese model (also handles Japanese and English)
+                                   #   For European docs, use your country code -- it covers English too.
   device: "auto"                  # "auto" (recommended), "cpu", or "gpu"
+  # detection_model: ""           # Detection model (default: PP-OCRv5_mobile_det)
+                                  #   Use "PP-OCRv5_server_det" for higher accuracy
+                                  #   on complex layouts (uses more RAM)
+  # det_limit_side_len: 736       # Max image side for detection (lower = less RAM)
+  # cpu_threads: 4                # CPU threads for OCR inference (default: 4)
 
 # Company Information
 company:

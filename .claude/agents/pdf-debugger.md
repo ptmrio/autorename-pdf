@@ -46,7 +46,7 @@ A user is having trouble with a PDF not being renamed correctly. Your job is to 
 ## Common Issues
 
 - Scanned PDF with no OCR layer → enable PaddleOCR (`pdf.ocr: true` in config) or vision mode
-- OCR language mismatch → check `ocr_languages` in config
+- OCR language mismatch → check `paddleocr.language` in config
 - Company name not in harmonization list → suggest adding it
 - AI returning unexpected JSON format → check model and prompt
 - Date in unusual format → check dateparser locale settings

@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from _config_loader import (
     load_yaml_config, load_company_names, _detect_old_schema, _deep_merge,
-    _migrate_extraction_config, _migrate_paddleocr_config,
+    _migrate_extraction_config, _migrate_paddleocr_config, _migrate_paddleocr_languages,
     _resolve_env_vars, _interpolate_env_vars,
 )
 
@@ -101,7 +101,10 @@ class TestLoadYamlConfig:
         assert result["pdf"]["text_quality_threshold"] == 0.3
         assert result["pdf"]["ocr"] is False
         assert result["pdf"]["vision"] is False
-        assert result["paddleocr"]["languages"] == ["en"]
+        assert result["paddleocr"]["language"] == "en"
+        assert result["paddleocr"]["detection_model"] == ""
+        assert result["paddleocr"]["det_limit_side_len"] == 736
+        assert result["paddleocr"]["cpu_threads"] == 4
 
     def test_corrupt_yaml(self, tmp_path):
         """Corrupt YAML returns None gracefully."""
@@ -184,19 +187,19 @@ class TestMigrateExtractionConfig:
 
 class TestMigratePaddleocrConfig:
     def test_use_gpu_true_becomes_device_gpu(self):
-        config = {"paddleocr": {"use_gpu": True, "languages": ["en"]}}
+        config = {"paddleocr": {"use_gpu": True, "language": "en"}}
         result = _migrate_paddleocr_config(config)
         assert result["paddleocr"]["device"] == "gpu"
         assert "use_gpu" not in result["paddleocr"]
 
     def test_use_gpu_false_becomes_device_auto(self):
-        config = {"paddleocr": {"use_gpu": False, "languages": ["en"]}}
+        config = {"paddleocr": {"use_gpu": False, "language": "en"}}
         result = _migrate_paddleocr_config(config)
         assert result["paddleocr"]["device"] == "auto"
         assert "use_gpu" not in result["paddleocr"]
 
     def test_no_use_gpu_unchanged(self):
-        config = {"paddleocr": {"device": "cpu", "languages": ["en"]}}
+        config = {"paddleocr": {"device": "cpu", "language": "en"}}
         result = _migrate_paddleocr_config(config)
         assert result["paddleocr"]["device"] == "cpu"
 
@@ -227,6 +230,48 @@ class TestMigratePaddleocrConfig:
         assert "use_gpu" not in result["paddleocr"]
 
 
+class TestMigratePaddleocrLanguages:
+    def test_languages_list_migrated(self):
+        config = {"paddleocr": {"languages": ["de", "en"]}}
+        result = _migrate_paddleocr_languages(config)
+        assert result["paddleocr"]["language"] == "de"
+        assert "languages" not in result["paddleocr"]
+
+    def test_empty_languages_defaults_to_en(self):
+        config = {"paddleocr": {"languages": []}}
+        result = _migrate_paddleocr_languages(config)
+        assert result["paddleocr"]["language"] == "en"
+        assert "languages" not in result["paddleocr"]
+
+    def test_no_old_key_unchanged(self):
+        config = {"paddleocr": {"language": "de"}}
+        result = _migrate_paddleocr_languages(config)
+        assert result["paddleocr"]["language"] == "de"
+
+    def test_existing_language_not_overwritten(self):
+        config = {"paddleocr": {"languages": ["en"], "language": "de"}}
+        result = _migrate_paddleocr_languages(config)
+        assert result["paddleocr"]["language"] == "de"
+        assert "languages" not in result["paddleocr"]
+
+    def test_combined_migrations_in_load(self, tmp_path):
+        """Both use_gpu and languages migrations run together through load_yaml_config."""
+        config = {
+            "config_version": 2,
+            "ai": {"provider": "openai", "api_key": "test"},
+            "paddleocr": {"use_gpu": True, "languages": ["de"]},
+        }
+        path = str(tmp_path / "config.yaml")
+        with open(path, 'w') as f:
+            yaml.dump(config, f)
+
+        result = load_yaml_config(path)
+        assert result["paddleocr"]["device"] == "gpu"
+        assert result["paddleocr"]["language"] == "de"
+        assert "use_gpu" not in result["paddleocr"]
+        assert "languages" not in result["paddleocr"]
+
+
 class TestLoadCompanyNames:
     def test_load_valid_file(self, harmonized_names_file):
         result = load_company_names(harmonized_names_file)
@@ -249,7 +294,6 @@ class TestLoadCompanyNames:
         """Corrupt company names YAML returns empty dict."""
         names_file = tmp_path / "names.yaml"
         names_file.write_text(": invalid: yaml: {{{}}")
-        from _config_loader import load_company_names
         result = load_company_names(str(names_file))
         assert result == {}
 

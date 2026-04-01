@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import threading
 from dataclasses import dataclass, field
 
 import pdfplumber
@@ -227,8 +228,12 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
         return ""
 
     bridge_src = _get_bridge_script_path()
-    lang = config.get("paddleocr", {}).get("languages", ["en"])[0]
-    device = config.get("paddleocr", {}).get("device", "auto")
+    paddleocr_cfg = config.get("paddleocr", {})
+    lang = paddleocr_cfg.get("language", "en")
+    device = paddleocr_cfg.get("device", "auto")
+    det_model = paddleocr_cfg.get("detection_model", "")
+    det_limit = paddleocr_cfg.get("det_limit_side_len", 736)
+    cpu_threads = paddleocr_cfg.get("cpu_threads", 4)
 
     tmp_dir = tempfile.mkdtemp(prefix="autorename_ocr_")
     try:
@@ -263,7 +268,13 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
         else:
             bridge = bridge_src
 
-        cmd = [python, bridge, lang, "--device", device]
+        cmd = [python, bridge, lang, "--device", device,
+               "--det-limit", str(det_limit),
+               "--cpu-threads", str(cpu_threads)]
+        if det_model:
+            cmd.extend(["--det-model", det_model])
+
+        logging.info(f"Starting PaddleOCR (lang={lang}, device={device})")
 
         proc = subprocess.Popen(
             cmd,
@@ -272,6 +283,23 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             env=env,
         )
+
+        # Stream stderr in background so model-download progress is visible.
+        # Lines about active model downloads are logged at WARNING level
+        # (always visible) so users see first-time model download progress.
+        def _drain_stderr():
+            for line in proc.stderr:
+                line = line.rstrip()
+                if not line:
+                    continue
+                low = line.lower()
+                if ("downloading" in low or "fetching" in low
+                        or "download complete" in low):
+                    logging.warning(f"PaddleOCR: {line}")
+                else:
+                    logging.info(f"PaddleOCR: {line}")
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
 
         all_text = []
         for i, img in enumerate(images):
@@ -301,9 +329,7 @@ def ocr_with_paddleocr(images: list[Image.Image], config: dict) -> str:
             proc.kill()
             proc.wait(timeout=5)
 
-        stderr_output = proc.stderr.read()
-        if stderr_output and proc.returncode != 0:
-            logging.warning(f"PaddleOCR stderr: {stderr_output[-2000:]}")
+        stderr_thread.join(timeout=5)
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -346,9 +372,11 @@ def extract_content(pdf_path: str, config: dict) -> ExtractionResult:
     ocr_text = ""
     images = []
 
-    # Step 3: Render images once if needed for OCR or vision
+    # Step 3: Render images if needed for OCR or vision
+    # Use lower scale for OCR-only (detection model resizes internally anyway)
     if run_ocr or run_vision:
-        images = render_pages_to_images(pdf_path, max_pages)
+        ocr_scale = 1.5 if (run_ocr and not run_vision) else 2.0
+        images = render_pages_to_images(pdf_path, max_pages, scale=ocr_scale)
         if not images:
             logging.warning(f"No images rendered from {pdf_path}")
             warnings.append("Could not render page images")

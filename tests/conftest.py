@@ -135,8 +135,11 @@ def sample_config():
         },
         "paddleocr": {
             "venv_path": "",
-            "languages": ["en"],
+            "language": "en",
             "device": "auto",
+            "detection_model": "",
+            "det_limit_side_len": 736,
+            "cpu_threads": 4,
         },
         "company": {
             "name": "Test Company",
@@ -277,8 +280,11 @@ def real_config():
         },
         "paddleocr": {
             "venv_path": "",
-            "languages": ["en", "de"],
+            "language": "de",
             "device": "auto",
+            "detection_model": "",
+            "det_limit_side_len": 736,
+            "cpu_threads": 4,
         },
         "company": {
             "name": "Petermeir Web Solutions, Gerhard Petermeir",
@@ -357,8 +363,11 @@ def _base_live_config() -> dict:
         },
         "paddleocr": {
             "venv_path": "",
-            "languages": ["en", "de"],
+            "language": "de",
             "device": "auto",
+            "detection_model": "",
+            "det_limit_side_len": 736,
+            "cpu_threads": 4,
         },
         "company": {
             "name": "Petermeir Web Solutions, Gerhard Petermeir",
