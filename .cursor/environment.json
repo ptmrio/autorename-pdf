@@ -1,0 +1,4 @@
+{
+  "name": "AutoRename-PDF",
+  "install": "sudo apt-get update -qq\nsudo apt-get install -y -qq python3.12-venv\npython3 -m venv venv\n./venv/bin/pip install -r requirements.txt -r requirements-dev.txt\n./venv/bin/python tests/generate_test_pdfs.py"
+}
