@@ -27,3 +27,7 @@ See `CLAUDE.md` and `README.md` for architecture, providers, and standard comman
 ### Secrets
 
 - Optional for unit tests. Required for live cloud providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. (see `.env.example`). Never commit `config.yaml` or `.env`.
+
+### Environment config
+
+- Cloud install is defined in `.cursor/environment.json` (repo-managed). Prefer merging that over the dashboard Save form when the form hangs.
