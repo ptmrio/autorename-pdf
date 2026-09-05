@@ -383,7 +383,7 @@ Also check out [PhraseVault](https://phrasevault.app) — a text expander and sn
 
 ## Development Setup
 
-**Prerequisites:** Python 3.11+, Git
+**Prerequisites:** Python 3.11+ (CLI floor), Git. Optional OCR embed is Python 3.13.15 with PaddlePaddle 3.3.1 / PaddleOCR 3.7.0 (`PP-OCRv6_small` defaults).
 
 ```bash
 git clone https://github.com/ptmrio/autorename-pdf.git
@@ -403,7 +403,7 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 | Module | Purpose |
 |--------|---------|
 | `autorename-pdf.py` | Entry point, CLI (argparse), orchestration |
-| `_ai_processing.py` | Multi-provider AI via instructor, structured output (Pydantic) |
+| `_ai_processing.py` | Multi-provider AI: native structured parse (OpenAI/Anthropic) or instructor (Gemini/xAI/Ollama) |
 | `_pdf_utils.py` | Text extraction (pdfplumber), image rendering (pypdfium2), PaddleOCR bridge |
 | `_paddleocr_bridge.py` | Subprocess bridge script for PaddleOCR venv |
 | `_document_processing.py` | Company harmonization (rapidfuzz), renaming, undo log |
@@ -412,19 +412,20 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 
 ## AI Providers (Technical)
 
-All providers use [instructor](https://github.com/jxnl/instructor) for structured Pydantic output.
+OpenAI and Anthropic use native structured parse. [Instructor](https://github.com/jxnl/instructor) is used only for Gemini, xAI, and Ollama.
 
 | Provider | SDK | Notes |
 |----------|-----|-------|
-| `openai` | openai (native) | Default |
-| `anthropic` | anthropic (native) | Uses `instructor.from_anthropic()` — Anthropic's OpenAI compat layer ignores structured output |
-| `gemini` | openai (base_url) | Google's OpenAI-compatible endpoint |
-| `xai` | openai (base_url) | Grok models |
-| `ollama` | openai (base_url) | Local models, no API key needed |
+| `openai` | openai (native) | Default. Native `responses.parse`. Default model `gpt-5.6-luna`. |
+| `anthropic` | anthropic (native) | Native `messages.parse`. OpenAI-compat layer ignores structured output. |
+| `gemini` | openai (base_url) | Instructor TOOLS mode via Google's OpenAI-compatible endpoint |
+| `xai` | openai (base_url) | Instructor TOOLS mode |
+| `ollama` | openai (base_url) | Instructor JSON mode, local models, no API key needed |
 
 ## Testing
 
 ```bash
+python -m ruff check .
 pytest tests/ -v --cov
 ```
 

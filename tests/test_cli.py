@@ -4,15 +4,15 @@ import json
 import sys
 import os
 import argparse
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from autorename_pdf_runner import (
     build_parser,
-    process_pdf,
     FileResult,
     BatchResult,
     ErrorResult,
@@ -23,6 +23,7 @@ from autorename_pdf_runner import (
     error_exit,
     _mod,
 )
+from conftest import assert_batch_result_schema, assert_error_result_schema, assert_undo_result_schema, assert_batch_list_schema
 
 _preprocess_argv = _mod._preprocess_argv
 _redact_config = _mod._redact_config
@@ -32,9 +33,6 @@ _handle_rename = _mod._handle_rename
 _handle_undo = _mod._handle_undo
 _main = _mod.main
 get_base_directory = _mod.get_base_directory
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from conftest import assert_batch_result_schema, assert_error_result_schema, assert_undo_result_schema, assert_batch_list_schema
 
 
 # ---------------------------------------------------------------------------

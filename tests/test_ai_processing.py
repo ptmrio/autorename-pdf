@@ -15,6 +15,7 @@ from _ai_processing import (
     get_instructor_client,
     extract_metadata,
     _build_combined_text,
+    build_provider_create_kwargs,
 )
 from _pdf_utils import ExtractionResult
 
@@ -273,9 +274,6 @@ class TestExtractMetadata:
         result = extract_metadata(extraction, sample_config)
         assert result.company_name == "Mixed"
         mock_extract.assert_called_once()
-
-
-from _ai_processing import build_provider_create_kwargs
 
 
 class TestBuildProviderCreateKwargs:

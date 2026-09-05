@@ -22,6 +22,7 @@ All commands assume the venv is activated.
 - **Dry run**: `python autorename-pdf.py --dry-run <files_or_folders>`
 - **Undo**: `python autorename-pdf.py --undo`
 - **Test**: `pytest tests/ -v --cov`
+- **Lint**: `python -m ruff check .`
 - **Build EXE**: `python build.py`
 - **Install deps**: `pip install -r requirements.txt`
 
@@ -44,7 +45,7 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 | Module | Purpose |
 |--------|---------|
 | `autorename-pdf.py` | Entry point, CLI (argparse), orchestration |
-| `_ai_processing.py` | Multi-provider AI via instructor, structured output (Pydantic) |
+| `_ai_processing.py` | Multi-provider AI: native structured parse (OpenAI/Anthropic) or instructor (Gemini/xAI/Ollama) |
 | `_pdf_utils.py` | Text extraction (pdfplumber), image rendering (pypdfium2), PaddleOCR bridge |
 | `_paddleocr_bridge.py` | Subprocess bridge script for PaddleOCR venv |
 | `_document_processing.py` | Company harmonization (rapidfuzz), renaming, undo log |
@@ -57,10 +58,10 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 - **NEVER commit `harmonized-company-names.yaml`** — user-specific data. Only commit the `.example`.
 - Platform: Windows-only (context menu EXE via PyInstaller)
 - Config: YAML-based (`config.yaml`), v2 schema — see `config.yaml.example`
-- Python 3.11+, type hints encouraged
+- Python 3.11+ floor for the CLI; OCR embed is Python 3.13.15
 - Company name matching uses Jaro-Winkler similarity (rapidfuzz library)
 - Date parsing uses dateparser with DMY locale
-- OCR: PaddleOCR via isolated subprocess venv (optional, installed by setup.ps1)
+- OCR: PaddlePaddle 3.3.1 / PaddleOCR 3.7.0 via isolated subprocess venv (optional, installed by setup.ps1). Defaults: `PP-OCRv6_small_det` + `PP-OCRv6_small_rec` for `en` and latin-script langs.
 
 ## AI Providers
 
@@ -68,13 +69,13 @@ Supports 5 providers via `ai.provider` config key:
 
 | Provider | SDK | Notes |
 |----------|-----|-------|
-| `openai` | openai (native) | Default |
-| `anthropic` | anthropic (native) | Uses `instructor.from_anthropic()` |
-| `gemini` | openai (base_url) | Google's OpenAI-compatible endpoint |
-| `xai` | openai (base_url) | Grok models |
-| `ollama` | openai (base_url) | Local models, no API key needed |
+| `openai` | openai (native) | Default. Native `responses.parse`. Default model `gpt-5.6-luna`. |
+| `anthropic` | anthropic (native) | Native `messages.parse`. OpenAI-compat layer ignores structured output. |
+| `gemini` | openai (base_url) | Instructor TOOLS mode via Google's OpenAI-compatible endpoint |
+| `xai` | openai (base_url) | Instructor TOOLS mode |
+| `ollama` | openai (base_url) | Instructor JSON mode, local models, no API key needed |
 
-All providers use `instructor` for structured Pydantic output. Anthropic uses native SDK because their OpenAI compat layer ignores structured output.
+OpenAI and Anthropic use native structured parse. Instructor is used only for Gemini, xAI, and Ollama.
 
 ## Three-Tier Extraction
 

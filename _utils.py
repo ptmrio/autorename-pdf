@@ -2,8 +2,6 @@
 Utility functions for filename validation and system operations.
 """
 
-import sys
-import logging
 import re
 import unicodedata
 

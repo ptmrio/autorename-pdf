@@ -13,7 +13,6 @@ Usage:
 """
 
 import os
-import sys
 import argparse
 from fpdf import FPDF
 from PIL import Image, ImageDraw, ImageFont

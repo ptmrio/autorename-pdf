@@ -6,18 +6,17 @@ import sys
 import shutil
 import argparse
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _ai_processing import DocumentMetadata
-from autorename_pdf_runner import process_pdf, collect_pdf_files, FileResult, ExitCode, _mod
+from autorename_pdf_runner import process_pdf, collect_pdf_files, ExitCode, _mod
+from conftest import assert_batch_result_schema, assert_undo_result_schema
 
 _handle_rename = _mod._handle_rename
 _handle_undo = _mod._handle_undo
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from conftest import assert_batch_result_schema, assert_undo_result_schema
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 

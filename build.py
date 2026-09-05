@@ -18,7 +18,6 @@ Usage:
   python build.py --cli-only       Build CLI EXE only (skip GUI + packaging)
 """
 
-import glob
 import json
 import os
 import shutil
@@ -383,7 +382,7 @@ def main():
         create_portable_zip()
 
     cleanup()
-    print(f"\nBuild complete. Output in Releases/")
+    print("\nBuild complete. Output in Releases/")
 
 
 if __name__ == "__main__":

@@ -2,11 +2,10 @@
 
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from _pdf_utils import extract_text, assess_text_quality, render_pages_to_images, extract_content
+from _pdf_utils import extract_text, render_pages_to_images, extract_content
 
 
 class TestTextInvoice:

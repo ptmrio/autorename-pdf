@@ -1,4 +1,6 @@
 """Shared test fixtures for AutoRename-PDF."""
+# Path bootstrap must run before project imports.
+# ruff: noqa: E402
 
 import copy
 import json
@@ -6,6 +8,7 @@ import os
 import sys
 import urllib.request
 import pytest
+from fpdf import FPDF
 from PIL import Image
 
 # Load .env file if python-dotenv is installed (dev dependency)
@@ -107,7 +110,6 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(pytest.mark.skip(reason=f"--provider={provider_filter}"))
             elif not _ollama_available():
                 item.add_marker(pytest.mark.skip(reason="Ollama not running at localhost:11434"))
-from fpdf import FPDF
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
