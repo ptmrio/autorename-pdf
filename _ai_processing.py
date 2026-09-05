@@ -130,12 +130,19 @@ def build_image_content(images: list, provider: str) -> list[dict]:
     ]
 
 
+def _openai_supports_reasoning_none(model: str) -> bool:
+    name = (model or "").lower()
+    return "luna" in name or name.startswith("gpt-5.6")
+
+
 def build_provider_create_kwargs(provider: str, config: dict) -> dict:
     ai = config["ai"]
     if provider == "anthropic":
         return {"max_tokens": 1024}
     if provider == "openai":
-        return {"reasoning": {"effort": "none"}}
+        if _openai_supports_reasoning_none(str(ai.get("model", ""))):
+            return {"reasoning": {"effort": "none"}}
+        return {}
     return {"temperature": ai.get("temperature", 0.0)}
 
 
@@ -145,7 +152,11 @@ def _get_openai_client(config: dict):
     if not api_key:
         raise ValueError("API key required for provider 'openai'. Set ai.api_key in config.yaml.")
     custom_base_url = config["ai"].get("base_url", "")
-    return OpenAI(api_key=api_key, base_url=custom_base_url or None)
+    return OpenAI(
+        api_key=api_key,
+        base_url=custom_base_url or None,
+        max_retries=config["ai"].get("max_retries", 2),
+    )
 
 
 def _get_anthropic_client(config: dict):
@@ -154,7 +165,7 @@ def _get_anthropic_client(config: dict):
     api_key = config["ai"].get("api_key", "")
     if not api_key:
         raise ValueError("API key required for provider 'anthropic'. Set ai.api_key in config.yaml.")
-    return Anthropic(api_key=api_key)
+    return Anthropic(api_key=api_key, max_retries=config["ai"].get("max_retries", 2))
 
 
 def _openai_input_text_block(text: str) -> dict:

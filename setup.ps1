@@ -170,11 +170,30 @@ function Install-PaddleOCR {
         Write-Host "  [2/$totalSteps] pip already installed, skipping." -ForegroundColor Gray
     }
     else {
-        # Remove existing trees first so 3.13 files never overlay a 3.12 embed.
         # Recreating the venv is required when the base interpreter changes.
         if (Test-Path $pythonExe) {
             Write-Host "  Existing Python ($installedVersion) does not match $script:PythonVersion. Recreating." -ForegroundColor Yellow
         }
+
+        # Stage the new zip first. Never delete a working OCR install until
+        # the download is on disk, and never overlay 3.13 files onto 3.12.
+        Write-Host "  [1/$totalSteps] Downloading Python $script:PythonVersion embeddable package..." -ForegroundColor Yellow
+        $zipPath = Join-Path $installDir "python-embed.zip"
+        try {
+            Invoke-WebRequest -Uri $script:PythonZipUrl -OutFile $zipPath -UseBasicParsing
+        }
+        catch {
+            Write-Host "  ERROR: Failed to download Python." -ForegroundColor Red
+            Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "  Existing Python embed and OCR venv were left unchanged." -ForegroundColor Yellow
+            return $false
+        }
+        if (-not (Test-Path $zipPath)) {
+            Write-Host "  ERROR: Failed to download Python." -ForegroundColor Red
+            Write-Host "  Existing Python embed and OCR venv were left unchanged." -ForegroundColor Yellow
+            return $false
+        }
+
         try {
             if (Test-Path $pythonDir) {
                 Remove-Item -Path $pythonDir -Recurse -Force -ErrorAction Stop
@@ -194,16 +213,6 @@ function Install-PaddleOCR {
             return $false
         }
 
-        Write-Host "  [1/$totalSteps] Downloading Python $script:PythonVersion embeddable package..." -ForegroundColor Yellow
-        $zipPath = Join-Path $installDir "python-embed.zip"
-        try {
-            Invoke-WebRequest -Uri $script:PythonZipUrl -OutFile $zipPath -UseBasicParsing
-        }
-        catch {
-            Write-Host "  ERROR: Failed to download Python." -ForegroundColor Red
-            Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
-            return $false
-        }
         Expand-Archive -Path $zipPath -DestinationPath $pythonDir -Force
         Remove-Item $zipPath
 

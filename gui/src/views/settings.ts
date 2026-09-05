@@ -1,4 +1,4 @@
-import { setState } from '../lib/state';
+import { getState, setState } from '../lib/state';
 import { getConfig, getConfigPath, validateConfig } from '../lib/sidecar';
 import { showToast } from '../lib/toast';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -272,6 +272,12 @@ export async function renderSettingsView(root: HTMLElement): Promise<void> {
         }
         showToast(`${parts.join(', ')} found`, 'danger');
       }
+      if (errors.length > 0) {
+        const first = errors[0];
+        setState({ statusError: `${first.field}: ${first.message}` });
+      } else if (getState().statusError !== 'CLI executable not found') {
+        setState({ statusError: '' });
+      }
     } catch (err) {
       showToast(`Validation failed: ${err}`, 'danger');
     } finally {
@@ -373,7 +379,7 @@ export async function renderSettingsView(root: HTMLElement): Promise<void> {
 
       const footerEl = document.getElementById('settings-footer');
       const validateBtn = document.getElementById('btn-validate-config') as HTMLButtonElement | null;
-      if (footerEl && isSidecarError) footerEl.style.display = 'none';
+      if (footerEl && isSidecarError && !isConfigError) footerEl.style.display = 'none';
       if (validateBtn && isConfigError) {
         validateBtn.disabled = true;
       }

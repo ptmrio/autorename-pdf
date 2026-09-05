@@ -16,6 +16,8 @@ from _ai_processing import (
     extract_metadata,
     _build_combined_text,
     build_provider_create_kwargs,
+    _get_openai_client,
+    _get_anthropic_client,
 )
 from _pdf_utils import ExtractionResult
 
@@ -291,6 +293,14 @@ class TestBuildProviderCreateKwargs:
         assert kwargs["reasoning"] == {"effort": "none"}
         assert "temperature" not in kwargs
 
+    def test_openai_gpt5_does_not_send_reasoning_effort_none(self, sample_config):
+        sample_config["ai"]["provider"] = "openai"
+        sample_config["ai"]["model"] = "gpt-5"
+        kwargs = build_provider_create_kwargs("openai", sample_config)
+        effort = (kwargs.get("reasoning") or {}).get("effort")
+        assert effort != "none"
+        assert "temperature" not in kwargs
+
     def test_compat_provider_keeps_temperature(self, sample_config):
         sample_config["ai"]["provider"] = "ollama"
         sample_config["ai"]["temperature"] = 0.2
@@ -404,3 +414,18 @@ class TestNativeStructuredExtract:
         user_content = kwargs["messages"][0]["content"]
         assert any(c.get("type") == "image" for c in user_content)
         mock_client.chat.completions.create.assert_not_called()
+
+
+class TestNativeClientMaxRetries:
+    def test_openai_constructor_uses_config_max_retries(self, sample_config):
+        sample_config["ai"]["max_retries"] = 5
+        with patch("_ai_processing.OpenAI") as mock_openai:
+            _get_openai_client(sample_config)
+        assert mock_openai.call_args.kwargs["max_retries"] == 5
+
+    def test_anthropic_constructor_uses_config_max_retries(self, sample_config):
+        sample_config["ai"]["provider"] = "anthropic"
+        sample_config["ai"]["max_retries"] = 5
+        with patch("anthropic.Anthropic") as mock_anthropic:
+            _get_anthropic_client(sample_config)
+        assert mock_anthropic.call_args.kwargs["max_retries"] == 5

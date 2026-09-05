@@ -524,3 +524,29 @@ class TestPaddleOcrV6Defaults:
     def test_unknown_lang_falls_back_to_v6_small_rec(self):
         from _paddleocr_bridge import recognition_model_for
         assert recognition_model_for("not-a-real-lang") == "PP-OCRv6_small_rec"
+
+
+class TestInitV3ConstructorWiring:
+    def _fake_paddleocr(self):
+        fake_module = MagicMock()
+        fake_cls = MagicMock()
+        fake_module.PaddleOCR = fake_cls
+        return fake_module, fake_cls
+
+    def test_default_det_and_en_rec_models(self):
+        fake_module, fake_cls = self._fake_paddleocr()
+        with patch.dict(sys.modules, {"paddleocr": fake_module}):
+            from _paddleocr_bridge import _init_v3
+            _init_v3(lang="en")
+        kwargs = fake_cls.call_args.kwargs
+        assert kwargs["text_detection_model_name"] == "PP-OCRv6_small_det"
+        assert kwargs["text_recognition_model_name"] == "PP-OCRv6_small_rec"
+
+    def test_explicit_det_model_override(self):
+        fake_module, fake_cls = self._fake_paddleocr()
+        with patch.dict(sys.modules, {"paddleocr": fake_module}):
+            from _paddleocr_bridge import _init_v3
+            _init_v3(lang="en", det_model="PP-OCRv5_server_det")
+        kwargs = fake_cls.call_args.kwargs
+        assert kwargs["text_detection_model_name"] == "PP-OCRv5_server_det"
+        assert kwargs["text_recognition_model_name"] == "PP-OCRv6_small_rec"
