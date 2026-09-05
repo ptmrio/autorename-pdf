@@ -17,8 +17,8 @@
 # Pinning protects against supply-chain attacks on PyPI (e.g. compromised uploads).
 $script:PaddlePaddleVersion = "3.3.1"
 $script:PaddleOCRVersion    = "3.7.0"
-$script:VirtualenvVersion   = "21.2.0"
-$script:PythonVersion       = "3.12.8"
+$script:VirtualenvVersion   = "21.7.8"
+$script:PythonVersion       = "3.13.15"
 $script:PythonZipUrl        = "https://www.python.org/ftp/python/$script:PythonVersion/python-$script:PythonVersion-embed-amd64.zip"
 
 # Auto-elevate to administrator if not already running as admin
@@ -154,8 +154,46 @@ function Install-PaddleOCR {
     # Create install directory
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
-    # Step 1: Download embedded Python
-    if (-not (Test-Path $pythonExe)) {
+    # Step 1: Download embedded Python (version-aware; never overlay)
+    $needPython = $true
+    if (Test-Path $pythonExe) {
+        $installedVersion = & $pythonExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
+        $versionCheckExit = $LASTEXITCODE
+        $installedVersion = "$installedVersion".Trim()
+        if ($versionCheckExit -eq 0 -and $installedVersion -eq $script:PythonVersion) {
+            $needPython = $false
+        }
+    }
+
+    if (-not $needPython) {
+        Write-Host "  [1/$totalSteps] Python $script:PythonVersion already installed, skipping." -ForegroundColor Gray
+        Write-Host "  [2/$totalSteps] pip already installed, skipping." -ForegroundColor Gray
+    }
+    else {
+        # Remove existing trees first so 3.13 files never overlay a 3.12 embed.
+        # Recreating the venv is required when the base interpreter changes.
+        if (Test-Path $pythonExe) {
+            Write-Host "  Existing Python ($installedVersion) does not match $script:PythonVersion. Recreating." -ForegroundColor Yellow
+        }
+        try {
+            if (Test-Path $pythonDir) {
+                Remove-Item -Path $pythonDir -Recurse -Force -ErrorAction Stop
+            }
+            if (Test-Path $venvDir) {
+                Remove-Item -Path $venvDir -Recurse -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            Write-Host "  ERROR: Failed to remove existing Python embed or OCR venv." -ForegroundColor Red
+            Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
+        if ((Test-Path $pythonDir) -or (Test-Path $venvDir)) {
+            Write-Host "  ERROR: Failed to remove existing Python embed or OCR venv." -ForegroundColor Red
+            Write-Host "  Close any programs using those folders and try again." -ForegroundColor Yellow
+            return $false
+        }
+
         Write-Host "  [1/$totalSteps] Downloading Python $script:PythonVersion embeddable package..." -ForegroundColor Yellow
         $zipPath = Join-Path $installDir "python-embed.zip"
         try {
@@ -193,19 +231,28 @@ function Install-PaddleOCR {
             return $false
         }
         & $pythonExe $getPipPath --no-warn-script-location | Out-Host
-        Remove-Item $getPipPath
-    }
-    else {
-        Write-Host "  [1/$totalSteps] Python $script:PythonVersion already installed, skipping." -ForegroundColor Gray
-        Write-Host "  [2/$totalSteps] pip already installed, skipping." -ForegroundColor Gray
+        $getPipExit = $LASTEXITCODE
+        Remove-Item $getPipPath -ErrorAction SilentlyContinue
+        if ($getPipExit -ne 0) {
+            Write-Host "  ERROR: pip installation failed." -ForegroundColor Red
+            return $false
+        }
     }
 
-    # Step 3: Create virtual environment
+    # Step 3: Create virtual environment (virtualenv; embed has no venv module)
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
     if (-not (Test-Path $venvPython)) {
         Write-Host "  [3/$totalSteps] Creating PaddleOCR virtual environment..." -ForegroundColor Yellow
         & $pythonExe -m pip install "virtualenv==$script:VirtualenvVersion" --no-warn-script-location | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: virtualenv installation failed." -ForegroundColor Red
+            return $false
+        }
         & $pythonExe -m virtualenv $venvDir | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: Virtual environment creation failed." -ForegroundColor Red
+            return $false
+        }
     }
     else {
         Write-Host "  [3/$totalSteps] Virtual environment already exists, skipping." -ForegroundColor Gray
