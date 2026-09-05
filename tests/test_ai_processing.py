@@ -128,12 +128,34 @@ class TestGetInstructorClient:
 
     @patch("_ai_processing.OpenAI")
     @patch("_ai_processing.instructor")
+    def test_gemini_still_uses_instructor_tools(self, mock_instructor, mock_openai, sample_config):
+        """Gemini must use instructor TOOLS mode via from_openai."""
+        mock_instructor.from_openai.return_value = MagicMock()
+        mock_instructor.Mode.TOOLS = "TOOLS"
+        sample_config["ai"]["provider"] = "gemini"
+        get_instructor_client(sample_config)
+        mock_instructor.from_openai.assert_called_once_with(mock_openai.return_value, mode="TOOLS")
+
+    @patch("_ai_processing.OpenAI")
+    @patch("_ai_processing.instructor")
     def test_gemini_client_uses_base_url(self, mock_instructor, mock_openai, sample_config):
         mock_instructor.from_openai.return_value = MagicMock()
         sample_config["ai"]["provider"] = "gemini"
         get_instructor_client(sample_config)
         call_args = mock_openai.call_args
         assert "generativelanguage.googleapis.com" in call_args.kwargs["base_url"]
+
+    @patch("_ai_processing.OpenAI")
+    @patch("_ai_processing.instructor")
+    def test_xai_client_uses_base_url(self, mock_instructor, mock_openai, sample_config):
+        """xAI must use the api.x.ai OpenAI-compat endpoint with TOOLS mode."""
+        mock_instructor.from_openai.return_value = MagicMock()
+        mock_instructor.Mode.TOOLS = "TOOLS"
+        sample_config["ai"]["provider"] = "xai"
+        get_instructor_client(sample_config)
+        call_args = mock_openai.call_args
+        assert "api.x.ai" in call_args.kwargs["base_url"]
+        mock_instructor.from_openai.assert_called_once_with(mock_openai.return_value, mode="TOOLS")
 
 
 class TestExtractMetadataProviderKwargs:
