@@ -33,7 +33,7 @@ DEFAULTS = {
     "config_version": 2,
     "ai": {
         "provider": "openai",
-        "model": "gpt-5.4",
+        "model": "gpt-5.6-luna",
         "api_key": "",
         "base_url": "",
         "temperature": 0.0,

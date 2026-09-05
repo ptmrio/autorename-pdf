@@ -96,6 +96,7 @@ class TestLoadYamlConfig:
             yaml.dump(config, f)
 
         result = load_yaml_config(path)
+        assert result["ai"]["model"] == "gpt-5.6-luna"
         assert result["ai"]["temperature"] == 0.0
         assert result["ai"]["max_retries"] == 2
         assert result["pdf"]["text_quality_threshold"] == 0.3
