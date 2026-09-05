@@ -208,10 +208,8 @@ def build_tauri_gui(nosign):
     """Compile the Tauri GUI app (no bundle — packaged separately as ZIP)."""
     step("Build Tauri GUI (compile only)")
 
-    # Install frontend deps if needed
-    if not (GUI_DIR / "node_modules").is_dir():
-        print("Installing frontend dependencies...")
-        run([shutil.which("pnpm"), "install", "--frozen-lockfile"], cwd=str(GUI_DIR))
+    print("Installing frontend dependencies (frozen lockfile)...")
+    run([shutil.which("pnpm"), "install", "--frozen-lockfile"], cwd=str(GUI_DIR))
 
     # Stage the CLI EXE as Tauri sidecar (needed for compilation)
     # Tauri expects the source file with target-triple suffix in src-tauri/
