@@ -4,10 +4,10 @@
 # AI Provider Configuration
 ai:
   provider: "openai"              # openai, anthropic, gemini, xai, ollama
-  model: "gpt-5.4"               # Model name (provider-specific)
+  model: "gpt-5.6-luna"          # Model name (provider-specific)
   api_key: "your-api-key-here"   # Not needed for ollama
   base_url: ""                    # Custom base URL (optional, for proxies)
-  temperature: 0.0                # 0.0 = deterministic
+  temperature: 0.0                # Ignored for OpenAI/Anthropic native parse
   max_retries: 2                  # Retry failed API calls
 
 # --- API Key Options ---

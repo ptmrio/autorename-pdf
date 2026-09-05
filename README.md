@@ -109,7 +109,7 @@ PaddleOCR runs locally for free, cloud AI handles smart extraction. Great for mi
 ```yaml
 ai:
   provider: "openai"           # or anthropic, gemini, xai
-  model: "gpt-5.4"
+  model: "gpt-5.6-luna"
   api_key: "your-api-key"
 pdf:
   ocr: true                    # PaddleOCR enhances scanned docs
@@ -154,7 +154,7 @@ pdf:
 
 | Provider | Flagship Model | Budget Model |
 |----------|---------------|-------------|
-| OpenAI | `gpt-5.4` | `gpt-5-mini` |
+| OpenAI | `gpt-5.6-luna` | `gpt-5-mini` |
 | Anthropic | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` |
 | Gemini | `gemini-3.1-flash-lite` | `gemini-3-flash-preview` |
 | xAI | `grok-4.20-beta-0309-non-reasoning` | — |

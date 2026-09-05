@@ -119,7 +119,7 @@ def sample_config():
         "config_version": 2,
         "ai": {
             "provider": "openai",
-            "model": "gpt-5.4",
+            "model": "gpt-5.6-luna",
             "api_key": "test-key-123",
             "base_url": "",
             "temperature": 0.0,
@@ -264,7 +264,7 @@ def real_config():
         "config_version": 2,
         "ai": {
             "provider": "openai",
-            "model": "gpt-5.4",
+            "model": "gpt-5.6-luna",
             "api_key": "test-key-for-testing-only",
             "base_url": "",
             "temperature": 0.0,
