@@ -17,6 +17,8 @@ _impl_progress.md
 .pytest_cache/
 .todo/
 .backup-recovery/
+.worktrees/
+.superpowers/
 
 # GUI (Tauri)
 gui/node_modules/
