@@ -1,6 +1,6 @@
 """
-AI content processing with multi-provider support via instructor.
-Supports OpenAI, Anthropic (native), Gemini, xAI, and Ollama.
+AI content processing with multi-provider support.
+OpenAI and Anthropic use native structured parse; Gemini, xAI, and Ollama use instructor.
 """
 from __future__ import annotations
 
@@ -151,10 +151,72 @@ def build_provider_create_kwargs(provider: str, config: dict) -> dict:
     return {"temperature": ai.get("temperature", 0.0)}
 
 
+def _get_openai_client(config: dict):
+    """Create a native OpenAI client (not wrapped with instructor)."""
+    api_key = config["ai"].get("api_key", "")
+    if not api_key:
+        raise ValueError("API key required for provider 'openai'. Set ai.api_key in config.yaml.")
+    custom_base_url = config["ai"].get("base_url", "")
+    return OpenAI(api_key=api_key, base_url=custom_base_url or None)
+
+
+def _get_anthropic_client(config: dict):
+    """Create a native Anthropic client (not wrapped with instructor)."""
+    from anthropic import Anthropic
+    api_key = config["ai"].get("api_key", "")
+    if not api_key:
+        raise ValueError("API key required for provider 'anthropic'. Set ai.api_key in config.yaml.")
+    return Anthropic(api_key=api_key)
+
+
+def _openai_input_text_block(text: str) -> dict:
+    return {"type": "input_text", "text": text}
+
+
+def _openai_input_image_blocks(images: list) -> list[dict]:
+    return [
+        {"type": "input_image", "image_url": pil_to_base64_data_uri(img)}
+        for img in images
+    ]
+
+
+def _extract_openai_native(config: dict, user_content: list) -> DocumentMetadata:
+    client = _get_openai_client(config)
+    response = client.responses.parse(
+        model=config["ai"]["model"],
+        input=[
+            {"role": "system", "content": [_openai_input_text_block(build_system_prompt(config))]},
+            {"role": "user", "content": user_content},
+        ],
+        text_format=DocumentMetadata,
+        store=False,
+        **build_provider_create_kwargs("openai", config),
+    )
+    return response.output_parsed
+
+
+def _extract_anthropic_native(config: dict, user_content) -> DocumentMetadata:
+    client = _get_anthropic_client(config)
+    response = client.messages.parse(
+        model=config["ai"]["model"],
+        system=build_system_prompt(config),
+        messages=[{"role": "user", "content": user_content}],
+        output_format=DocumentMetadata,
+        **build_provider_create_kwargs("anthropic", config),
+    )
+    return response.parsed_output
+
+
 def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
     """Extract document metadata from text using an LLM."""
-    client = get_instructor_client(config)
     provider = config["ai"]["provider"]
+    user_text = f"Extract the information from this text:\n\n{text}"
+    if provider == "openai":
+        return _extract_openai_native(config, [_openai_input_text_block(user_text)])
+    if provider == "anthropic":
+        return _extract_anthropic_native(config, user_text)
+
+    client = get_instructor_client(config)
 
     kwargs = build_provider_create_kwargs(provider, config)
     kwargs.update({
@@ -163,7 +225,7 @@ def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
         "max_retries": config["ai"].get("max_retries", 2),
         "messages": [
             {"role": "system", "content": build_system_prompt(config)},
-            {"role": "user", "content": f"Extract the information from this text:\n\n{text}"}
+            {"role": "user", "content": user_text}
         ],
     })
 
@@ -172,9 +234,20 @@ def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
 
 def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata:
     """Extract document metadata from page images using a vision-capable LLM."""
-    client = get_instructor_client(config)
     provider = config["ai"]["provider"]
+    if provider == "openai":
+        return _extract_openai_native(config, [
+            _openai_input_text_block("Extract document metadata from these page images:"),
+            *_openai_input_image_blocks(images),
+        ])
+    if provider == "anthropic":
+        image_content = build_image_content(images, "anthropic")
+        return _extract_anthropic_native(config, [
+            {"type": "text", "text": "Extract document metadata from these page images:"},
+            *image_content,
+        ])
 
+    client = get_instructor_client(config)
     image_content = build_image_content(images, provider)
 
     kwargs = build_provider_create_kwargs(provider, config)
@@ -210,9 +283,21 @@ def extract_metadata_from_text_and_images(
     text: str, images: list, config: dict
 ) -> DocumentMetadata:
     """Extract metadata from combined text + page images (multimodal)."""
-    client = get_instructor_client(config)
     provider = config["ai"]["provider"]
+    user_text = f"Extract document metadata from this text and images:\n\n{text}"
+    if provider == "openai":
+        return _extract_openai_native(config, [
+            _openai_input_text_block(user_text),
+            *_openai_input_image_blocks(images),
+        ])
+    if provider == "anthropic":
+        image_content = build_image_content(images, "anthropic")
+        return _extract_anthropic_native(config, [
+            {"type": "text", "text": user_text},
+            *image_content,
+        ])
 
+    client = get_instructor_client(config)
     image_content = build_image_content(images, provider)
 
     kwargs = build_provider_create_kwargs(provider, config)
@@ -223,7 +308,7 @@ def extract_metadata_from_text_and_images(
         "messages": [
             {"role": "system", "content": build_system_prompt(config)},
             {"role": "user", "content": [
-                {"type": "text", "text": f"Extract document metadata from this text and images:\n\n{text}"},
+                {"type": "text", "text": user_text},
                 *image_content,
             ]},
         ],

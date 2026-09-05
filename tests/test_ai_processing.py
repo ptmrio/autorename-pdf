@@ -135,13 +135,13 @@ class TestGetInstructorClient:
 
 
 class TestExtractMetadataProviderKwargs:
-    """Test that provider-specific kwargs are applied correctly."""
+    """Instructor-shaped kwargs for compat providers (gemini/xai/ollama)."""
 
     @patch("_ai_processing.get_instructor_client")
     @patch("_ai_processing.build_system_prompt", return_value="test prompt")
-    def test_anthropic_adds_max_tokens(self, mock_prompt, mock_client, sample_config):
-        """Anthropic provider includes max_tokens in API call."""
-        sample_config["ai"]["provider"] = "anthropic"
+    def test_compat_provider_includes_temperature(self, mock_prompt, mock_client, sample_config):
+        """Gemini/xAI/Ollama instructor calls keep temperature and omit native kwargs."""
+        sample_config["ai"]["provider"] = "gemini"
         mock_completions = MagicMock()
         mock_completions.create.return_value = DocumentMetadata(
             company_name="Test", document_date="01.01.2024", document_type="ER"
@@ -152,32 +152,16 @@ class TestExtractMetadataProviderKwargs:
         extract_metadata_from_text("test text", sample_config)
 
         call_kwargs = mock_completions.create.call_args[1]
-        assert call_kwargs.get("max_tokens") == 1024
-        assert "temperature" not in call_kwargs
-
-    @patch("_ai_processing.get_instructor_client")
-    @patch("_ai_processing.build_system_prompt", return_value="test prompt")
-    def test_openai_no_max_tokens(self, mock_prompt, mock_client, sample_config):
-        """OpenAI provider does NOT include max_tokens."""
-        mock_completions = MagicMock()
-        mock_completions.create.return_value = DocumentMetadata(
-            company_name="Test", document_date="01.01.2024", document_type="ER"
-        )
-        mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
-
-        from _ai_processing import extract_metadata_from_text
-        extract_metadata_from_text("test text", sample_config)
-
-        call_kwargs = mock_completions.create.call_args[1]
+        assert call_kwargs["temperature"] == 0.0
         assert "max_tokens" not in call_kwargs
-        assert call_kwargs["reasoning"] == {"effort": "none"}
-        assert "temperature" not in call_kwargs
+        assert "reasoning" not in call_kwargs
 
     @patch("_ai_processing.get_instructor_client")
     @patch("_ai_processing.build_system_prompt", return_value="test prompt")
     def test_vision_extraction_kwargs(self, mock_prompt, mock_client, sample_config):
-        """Vision extraction sends image_url content blocks."""
+        """Vision extraction sends image_url content blocks for compat providers."""
         from PIL import Image
+        sample_config["ai"]["provider"] = "gemini"
         mock_completions = MagicMock()
         mock_completions.create.return_value = DocumentMetadata(
             company_name="Test", document_date="01.01.2024", document_type="ER"
@@ -292,3 +276,109 @@ class TestBuildProviderCreateKwargs:
         assert kwargs["temperature"] == 0.2
         assert "max_tokens" not in kwargs
         assert "reasoning" not in kwargs
+
+
+class TestNativeStructuredExtract:
+    def test_openai_text_uses_responses_parse(self, sample_config):
+        sample_config["ai"]["provider"] = "openai"
+        sample_config["ai"]["model"] = "gpt-5.6-luna"
+        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        mock_resp = MagicMock(output_parsed=parsed)
+        mock_client = MagicMock()
+        mock_client.responses.parse.return_value = mock_resp
+        with patch("_ai_processing._get_openai_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_text
+            result = extract_metadata_from_text("invoice text", sample_config)
+        assert result.company_name == "ACME"
+        kwargs = mock_client.responses.parse.call_args.kwargs
+        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["store"] is False
+        assert kwargs["reasoning"] == {"effort": "none"}
+        assert "temperature" not in kwargs
+        mock_client.chat.completions.create.assert_not_called()
+
+    def test_anthropic_text_uses_messages_parse(self, sample_config):
+        sample_config["ai"]["provider"] = "anthropic"
+        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        mock_resp = MagicMock(parsed_output=parsed)
+        mock_client = MagicMock()
+        mock_client.messages.parse.return_value = mock_resp
+        with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_text
+            result = extract_metadata_from_text("rechnung", sample_config)
+        assert result.company_name == "GmbH"
+        kwargs = mock_client.messages.parse.call_args.kwargs
+        assert kwargs["output_format"] is DocumentMetadata
+        assert kwargs["max_tokens"] == 1024
+        assert "temperature" not in kwargs
+
+    def test_openai_vision_puts_images_in_input(self, sample_config, sample_pil_image):
+        sample_config["ai"]["provider"] = "openai"
+        sample_config["ai"]["model"] = "gpt-5.6-luna"
+        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        mock_resp = MagicMock(output_parsed=parsed)
+        mock_client = MagicMock()
+        mock_client.responses.parse.return_value = mock_resp
+        with patch("_ai_processing._get_openai_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_images
+            result = extract_metadata_from_images([sample_pil_image], sample_config)
+        assert result.company_name == "ACME"
+        kwargs = mock_client.responses.parse.call_args.kwargs
+        assert "input" in kwargs
+        assert "messages" not in kwargs
+        contents = []
+        for item in kwargs["input"]:
+            contents.extend(item.get("content", []) if isinstance(item.get("content"), list) else [])
+        assert any(c.get("type") == "input_image" for c in contents)
+        assert not any(c.get("type") == "image_url" for c in contents)
+        mock_client.chat.completions.create.assert_not_called()
+
+    def test_anthropic_vision_keeps_image_blocks_in_messages(self, sample_config, sample_pil_image):
+        sample_config["ai"]["provider"] = "anthropic"
+        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        mock_resp = MagicMock(parsed_output=parsed)
+        mock_client = MagicMock()
+        mock_client.messages.parse.return_value = mock_resp
+        with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_images
+            result = extract_metadata_from_images([sample_pil_image], sample_config)
+        assert result.company_name == "GmbH"
+        kwargs = mock_client.messages.parse.call_args.kwargs
+        assert kwargs["output_format"] is DocumentMetadata
+        user_content = kwargs["messages"][0]["content"]
+        assert isinstance(user_content, list)
+        image_blocks = [c for c in user_content if c.get("type") == "image"]
+        assert len(image_blocks) == 1
+        assert image_blocks[0]["source"]["type"] == "base64"
+        mock_client.chat.completions.create.assert_not_called()
+
+    def test_openai_text_and_images_uses_responses_parse(self, sample_config, sample_pil_image):
+        sample_config["ai"]["provider"] = "openai"
+        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        mock_resp = MagicMock(output_parsed=parsed)
+        mock_client = MagicMock()
+        mock_client.responses.parse.return_value = mock_resp
+        with patch("_ai_processing._get_openai_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_text_and_images
+            result = extract_metadata_from_text_and_images("invoice text", [sample_pil_image], sample_config)
+        assert result.company_name == "ACME"
+        kwargs = mock_client.responses.parse.call_args.kwargs
+        assert kwargs["text_format"] is DocumentMetadata
+        assert "input" in kwargs
+        mock_client.chat.completions.create.assert_not_called()
+
+    def test_anthropic_text_and_images_uses_messages_parse(self, sample_config, sample_pil_image):
+        sample_config["ai"]["provider"] = "anthropic"
+        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        mock_resp = MagicMock(parsed_output=parsed)
+        mock_client = MagicMock()
+        mock_client.messages.parse.return_value = mock_resp
+        with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
+            from _ai_processing import extract_metadata_from_text_and_images
+            result = extract_metadata_from_text_and_images("rechnung", [sample_pil_image], sample_config)
+        assert result.company_name == "GmbH"
+        kwargs = mock_client.messages.parse.call_args.kwargs
+        assert kwargs["output_format"] is DocumentMetadata
+        user_content = kwargs["messages"][0]["content"]
+        assert any(c.get("type") == "image" for c in user_content)
+        mock_client.chat.completions.create.assert_not_called()
