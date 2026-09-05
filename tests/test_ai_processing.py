@@ -153,6 +153,7 @@ class TestExtractMetadataProviderKwargs:
 
         call_kwargs = mock_completions.create.call_args[1]
         assert call_kwargs.get("max_tokens") == 1024
+        assert "temperature" not in call_kwargs
 
     @patch("_ai_processing.get_instructor_client")
     @patch("_ai_processing.build_system_prompt", return_value="test prompt")
@@ -169,6 +170,8 @@ class TestExtractMetadataProviderKwargs:
 
         call_kwargs = mock_completions.create.call_args[1]
         assert "max_tokens" not in call_kwargs
+        assert call_kwargs["reasoning"] == {"effort": "none"}
+        assert "temperature" not in call_kwargs
 
     @patch("_ai_processing.get_instructor_client")
     @patch("_ai_processing.build_system_prompt", return_value="test prompt")
@@ -262,3 +265,30 @@ class TestExtractMetadata:
         result = extract_metadata(extraction, sample_config)
         assert result.company_name == "Mixed"
         mock_extract.assert_called_once()
+
+
+from _ai_processing import build_provider_create_kwargs
+
+
+class TestBuildProviderCreateKwargs:
+    def test_anthropic_omits_temperature_and_sets_max_tokens(self, sample_config):
+        sample_config["ai"]["provider"] = "anthropic"
+        sample_config["ai"]["temperature"] = 0.0
+        kwargs = build_provider_create_kwargs("anthropic", sample_config)
+        assert "temperature" not in kwargs
+        assert kwargs["max_tokens"] == 1024
+
+    def test_openai_sets_reasoning_none_and_omits_temperature(self, sample_config):
+        sample_config["ai"]["provider"] = "openai"
+        sample_config["ai"]["model"] = "gpt-5.6-luna"
+        kwargs = build_provider_create_kwargs("openai", sample_config)
+        assert kwargs["reasoning"] == {"effort": "none"}
+        assert "temperature" not in kwargs
+
+    def test_compat_provider_keeps_temperature(self, sample_config):
+        sample_config["ai"]["provider"] = "ollama"
+        sample_config["ai"]["temperature"] = 0.2
+        kwargs = build_provider_create_kwargs("ollama", sample_config)
+        assert kwargs["temperature"] == 0.2
+        assert "max_tokens" not in kwargs
+        assert "reasoning" not in kwargs

@@ -142,25 +142,30 @@ def build_image_content(images: list, provider: str) -> list[dict]:
     ]
 
 
+def build_provider_create_kwargs(provider: str, config: dict) -> dict:
+    ai = config["ai"]
+    if provider == "anthropic":
+        return {"max_tokens": 1024}
+    if provider == "openai":
+        return {"reasoning": {"effort": "none"}}
+    return {"temperature": ai.get("temperature", 0.0)}
+
+
 def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
     """Extract document metadata from text using an LLM."""
     client = get_instructor_client(config)
     provider = config["ai"]["provider"]
 
-    kwargs = {
+    kwargs = build_provider_create_kwargs(provider, config)
+    kwargs.update({
         "model": config["ai"]["model"],
         "response_model": DocumentMetadata,
         "max_retries": config["ai"].get("max_retries", 2),
-        "temperature": config["ai"].get("temperature", 0.0),
         "messages": [
             {"role": "system", "content": build_system_prompt(config)},
             {"role": "user", "content": f"Extract the information from this text:\n\n{text}"}
         ],
-    }
-
-    # Anthropic uses max_tokens instead of being optional
-    if provider == "anthropic":
-        kwargs["max_tokens"] = 1024
+    })
 
     return client.chat.completions.create(**kwargs)
 
@@ -172,11 +177,11 @@ def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata
 
     image_content = build_image_content(images, provider)
 
-    kwargs = {
+    kwargs = build_provider_create_kwargs(provider, config)
+    kwargs.update({
         "model": config["ai"]["model"],
         "response_model": DocumentMetadata,
         "max_retries": config["ai"].get("max_retries", 2),
-        "temperature": config["ai"].get("temperature", 0.0),
         "messages": [
             {"role": "system", "content": build_system_prompt(config)},
             {"role": "user", "content": [
@@ -184,10 +189,7 @@ def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata
                 *image_content
             ]}
         ],
-    }
-
-    if provider == "anthropic":
-        kwargs["max_tokens"] = 1024
+    })
 
     return client.chat.completions.create(**kwargs)
 
@@ -213,11 +215,11 @@ def extract_metadata_from_text_and_images(
 
     image_content = build_image_content(images, provider)
 
-    kwargs = {
+    kwargs = build_provider_create_kwargs(provider, config)
+    kwargs.update({
         "model": config["ai"]["model"],
         "response_model": DocumentMetadata,
         "max_retries": config["ai"].get("max_retries", 2),
-        "temperature": config["ai"].get("temperature", 0.0),
         "messages": [
             {"role": "system", "content": build_system_prompt(config)},
             {"role": "user", "content": [
@@ -225,10 +227,7 @@ def extract_metadata_from_text_and_images(
                 *image_content,
             ]},
         ],
-    }
-
-    if provider == "anthropic":
-        kwargs["max_tokens"] = 1024
+    })
 
     return client.chat.completions.create(**kwargs)
 
