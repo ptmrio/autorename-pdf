@@ -44,7 +44,7 @@ paddleocr:
                                    #   "ch" = Chinese model (also handles Japanese and English)
                                    #   For European docs, use your country code -- it covers English too.
   device: "auto"                  # "auto" (recommended), "cpu", or "gpu"
-  # detection_model: ""           # Detection model (default: PP-OCRv5_mobile_det)
+  # detection_model: ""           # Detection model (default: PP-OCRv6_small_det)
                                   #   Use "PP-OCRv5_server_det" for higher accuracy
                                   #   on complex layouts (uses more RAM)
   # det_limit_side_len: 736       # Max image side for detection (lower = less RAM)

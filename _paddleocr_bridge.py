@@ -3,7 +3,7 @@
 Reads image paths from stdin (one per line), outputs JSON to stdout.
 Stays alive to avoid cold-start overhead on multiple pages.
 
-Requires PaddleOCR 3.x+ (pinned to 3.4.0 by setup.ps1).
+Requires PaddleOCR 3.x+ (pinned to 3.7.0 by setup.ps1).
 
 Usage: python _paddleocr_bridge.py <lang> [--device <auto|cpu|gpu>]
        [--det-model <model_name>] [--det-limit <pixels>] [--cpu-threads <n>]
@@ -42,25 +42,27 @@ def _configure_stdio_utf8() -> None:
 _configure_stdio_utf8()
 
 
-# Lang code to PP-OCRv5 recognition model mapping.
+# Lang code to recognition model mapping.
 # Mirrors PaddleOCR's _get_ocr_model_names() so we can use explicit model names
 # (which avoids the "lang will be ignored" warning in PaddleOCR 3.4+).
+# Latin-script langs (including en) default to PP-OCRv6_small_rec; specialized
+# scripts stay on their v5 rec models.
 _LANG_TO_REC_MODEL = {}
 _lang_groups = {
     "PP-OCRv5_server_rec": ["ch", "chinese_cht", "japan"],
-    "en_PP-OCRv5_mobile_rec": ["en"],
-    "korean_PP-OCRv5_mobile_rec": ["korean"],
-    "th_PP-OCRv5_mobile_rec": ["th"],
-    "el_PP-OCRv5_mobile_rec": ["el"],
-    "te_PP-OCRv5_mobile_rec": ["te"],
-    "ta_PP-OCRv5_mobile_rec": ["ta"],
-    "latin_PP-OCRv5_mobile_rec": [
+    "PP-OCRv6_small_rec": [
+        "en",
         "af", "az", "bs", "ca", "cs", "cy", "da", "de", "es", "et", "eu",
         "fi", "fr", "french", "ga", "german", "gl", "hr", "hu", "id", "is",
         "it", "ku", "la", "lb", "lt", "lv", "mi", "ms", "mt", "nl", "no",
         "oc", "pi", "pl", "pt", "qu", "rm", "ro", "rs_latin", "sk", "sl",
         "sq", "sv", "sw", "tl", "tr", "uz", "vi",
     ],
+    "korean_PP-OCRv5_mobile_rec": ["korean"],
+    "th_PP-OCRv5_mobile_rec": ["th"],
+    "el_PP-OCRv5_mobile_rec": ["el"],
+    "te_PP-OCRv5_mobile_rec": ["te"],
+    "ta_PP-OCRv5_mobile_rec": ["ta"],
     "eslav_PP-OCRv5_mobile_rec": ["ru", "be", "uk"],
     "arabic_PP-OCRv5_mobile_rec": ["ar", "fa", "ug", "ur", "ps", "sd", "bal"],
     "cyrillic_PP-OCRv5_mobile_rec": [
@@ -80,12 +82,23 @@ for _model, _langs in _lang_groups.items():
 del _lang_groups
 
 
+def default_detection_model() -> str:
+    return "PP-OCRv6_small_det"
+
+
+def recognition_model_for(lang: str) -> str:
+    rec_model = _LANG_TO_REC_MODEL.get(lang)
+    if rec_model:
+        return rec_model
+    return "PP-OCRv6_small_rec"
+
+
 def _init_v3(lang="en", device="auto", det_model=None, det_limit=736, cpu_threads=4):
     """Initialize PaddleOCR v3.x (3.0+).
 
     lang: language code — mapped to the correct recognition model.
     device: "auto" (omit, let PaddleOCR decide), "cpu", or "gpu".
-    det_model: detection model name (default: PP-OCRv5_mobile_det for lower RAM).
+    det_model: detection model name (default: PP-OCRv6_small_det for lower RAM).
     det_limit: max image side length for detection (lower = less RAM).
     cpu_threads: CPU threads for inference (default: 4).
     If GPU init fails, falls back to auto-detect with a warning.
@@ -96,13 +109,12 @@ def _init_v3(lang="en", device="auto", det_model=None, det_limit=736, cpu_thread
     """
     from paddleocr import PaddleOCR
 
-    rec_model = _LANG_TO_REC_MODEL.get(lang)
-    if not rec_model:
+    rec_model = recognition_model_for(lang)
+    if lang not in _LANG_TO_REC_MODEL:
         print(json.dumps({
             "status": "warning",
             "message": f"Unknown lang '{lang}', falling back to English recognition model"
         }), file=sys.stderr)
-        rec_model = "en_PP-OCRv5_mobile_rec"
 
     kwargs = {
         "text_recognition_model_name": rec_model,
@@ -119,7 +131,7 @@ def _init_v3(lang="en", device="auto", det_model=None, det_limit=736, cpu_thread
     if det_model:
         kwargs["text_detection_model_name"] = det_model
     else:
-        kwargs["text_detection_model_name"] = "PP-OCRv5_mobile_det"
+        kwargs["text_detection_model_name"] = default_detection_model()
     if device in ("gpu", "cpu"):
         kwargs["device"] = device
 

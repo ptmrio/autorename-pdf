@@ -15,8 +15,8 @@
 
 # Pinned package versions -- update these when upgrading dependencies.
 # Pinning protects against supply-chain attacks on PyPI (e.g. compromised uploads).
-$script:PaddlePaddleVersion = "3.3.0"
-$script:PaddleOCRVersion    = "3.4.0"
+$script:PaddlePaddleVersion = "3.3.1"
+$script:PaddleOCRVersion    = "3.7.0"
 $script:VirtualenvVersion   = "21.2.0"
 $script:PythonVersion       = "3.12.8"
 $script:PythonZipUrl        = "https://www.python.org/ftp/python/$script:PythonVersion/python-$script:PythonVersion-embed-amd64.zip"
@@ -246,7 +246,7 @@ function Install-PaddleOCR {
     $env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK = "True"
     # Match runtime settings from _paddleocr_bridge.py to pre-download the correct models
     # Uses explicit model names (lang is ignored by PaddleOCR 3.4+ when model names are set)
-    $pyPreload = "import os; os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK']='True'; from paddleocr import PaddleOCR; PaddleOCR(use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False, text_detection_model_name='PP-OCRv5_mobile_det', text_recognition_model_name='en_PP-OCRv5_mobile_rec')"
+    $pyPreload = "import os; os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK']='True'; from paddleocr import PaddleOCR; PaddleOCR(use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False, enable_mkldnn=False, text_detection_model_name='PP-OCRv6_small_det', text_recognition_model_name='PP-OCRv6_small_rec')"
     & $venvPython -c $pyPreload | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""

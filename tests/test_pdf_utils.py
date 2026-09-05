@@ -469,3 +469,58 @@ class TestOCRConfigPassthrough:
         assert "736" in cmd
         assert "--cpu-threads" in cmd
         assert "4" in cmd
+
+
+# Latin-script langs currently mapped via latin_PP-OCRv5_mobile_rec, plus en.
+# Must stay importable without paddleocr installed (bridge imports paddleocr lazily).
+_LATIN_GROUP_LANGS = [
+    "af", "az", "bs", "ca", "cs", "cy", "da", "de", "es", "et", "eu",
+    "fi", "fr", "french", "ga", "german", "gl", "hr", "hu", "id", "is",
+    "it", "ku", "la", "lb", "lt", "lv", "mi", "ms", "mt", "nl", "no",
+    "oc", "pi", "pl", "pt", "qu", "rm", "ro", "rs_latin", "sk", "sl",
+    "sq", "sv", "sw", "tl", "tr", "uz", "vi",
+]
+
+
+class TestPaddleOcrV6Defaults:
+    def test_en_uses_v6_small_rec(self):
+        from _paddleocr_bridge import _LANG_TO_REC_MODEL
+        assert _LANG_TO_REC_MODEL["en"] == "PP-OCRv6_small_rec"
+
+    def test_de_uses_v6_small_rec(self):
+        from _paddleocr_bridge import _LANG_TO_REC_MODEL
+        assert _LANG_TO_REC_MODEL["de"] == "PP-OCRv6_small_rec"
+
+    def test_korean_stays_v5(self):
+        from _paddleocr_bridge import _LANG_TO_REC_MODEL
+        assert _LANG_TO_REC_MODEL["korean"] == "korean_PP-OCRv5_mobile_rec"
+
+    def test_default_detection_model_is_v6_small(self):
+        from _paddleocr_bridge import default_detection_model
+        assert default_detection_model() == "PP-OCRv6_small_det"
+
+    @pytest.mark.parametrize("lang", ["en"] + _LATIN_GROUP_LANGS)
+    def test_latin_group_langs_use_v6_small_rec(self, lang):
+        from _paddleocr_bridge import _LANG_TO_REC_MODEL
+        assert _LANG_TO_REC_MODEL[lang] == "PP-OCRv6_small_rec"
+
+    @pytest.mark.parametrize("lang,model", [
+        ("ch", "PP-OCRv5_server_rec"),
+        ("chinese_cht", "PP-OCRv5_server_rec"),
+        ("japan", "PP-OCRv5_server_rec"),
+        ("th", "th_PP-OCRv5_mobile_rec"),
+        ("el", "el_PP-OCRv5_mobile_rec"),
+        ("te", "te_PP-OCRv5_mobile_rec"),
+        ("ta", "ta_PP-OCRv5_mobile_rec"),
+        ("ru", "eslav_PP-OCRv5_mobile_rec"),
+        ("ar", "arabic_PP-OCRv5_mobile_rec"),
+        ("rs_cyrillic", "cyrillic_PP-OCRv5_mobile_rec"),
+        ("hi", "devanagari_PP-OCRv5_mobile_rec"),
+    ])
+    def test_specialized_langs_stay_on_v5(self, lang, model):
+        from _paddleocr_bridge import _LANG_TO_REC_MODEL
+        assert _LANG_TO_REC_MODEL[lang] == model
+
+    def test_unknown_lang_falls_back_to_v6_small_rec(self):
+        from _paddleocr_bridge import recognition_model_for
+        assert recognition_model_for("not-a-real-lang") == "PP-OCRv6_small_rec"
