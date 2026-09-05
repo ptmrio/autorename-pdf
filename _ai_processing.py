@@ -17,7 +17,6 @@ from _pdf_utils import ExtractionResult
 
 
 PROVIDER_BASE_URLS = {
-    "openai": None,
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "xai": "https://api.x.ai/v1",
     "ollama": "http://localhost:11434/v1",
@@ -38,28 +37,17 @@ class DocumentMetadata(BaseModel):
 
 
 def get_instructor_client(config: dict):
-    """Create an instructor-wrapped client for structured LLM output.
-
-    Most providers route through the OpenAI SDK via compatible endpoints.
-    Anthropic uses its native SDK (their OpenAI compat ignores structured output).
-    """
+    """Create an instructor-wrapped client for Gemini, xAI, or Ollama."""
     provider = config["ai"]["provider"]
     api_key = config["ai"].get("api_key", "")
     custom_base_url = config["ai"].get("base_url", "")
 
-    supported = list(PROVIDER_BASE_URLS.keys()) + ["anthropic"]
+    supported = list(PROVIDER_BASE_URLS.keys())
     if provider not in supported:
         raise ValueError(f"Unknown provider: {provider}. Supported: {', '.join(supported)}")
     if provider != "ollama" and not api_key:
         raise ValueError(f"API key required for provider '{provider}'. Set ai.api_key in config.yaml.")
 
-    # Anthropic: use native SDK
-    if provider == "anthropic":
-        from anthropic import Anthropic
-        raw = Anthropic(api_key=api_key)
-        return instructor.from_anthropic(raw)
-
-    # All others: OpenAI SDK with provider-specific base_url
     base_url = custom_base_url or PROVIDER_BASE_URLS.get(provider)
     if provider == "ollama":
         api_key = api_key or "ollama"

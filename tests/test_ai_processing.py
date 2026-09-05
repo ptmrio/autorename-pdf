@@ -93,6 +93,7 @@ class TestGetInstructorClient:
             get_instructor_client(sample_config)
 
     def test_missing_api_key_raises(self, sample_config):
+        sample_config["ai"]["provider"] = "gemini"
         sample_config["ai"]["api_key"] = ""
         with pytest.raises(ValueError, match="API key required"):
             get_instructor_client(sample_config)
@@ -104,14 +105,15 @@ class TestGetInstructorClient:
         client = get_instructor_client(sample_config)
         assert client is not None
 
-    @patch("_ai_processing.OpenAI")
-    @patch("_ai_processing.instructor")
-    def test_openai_client(self, mock_instructor, mock_openai, sample_config):
-        mock_instructor.from_openai.return_value = MagicMock()
-        mock_instructor.Mode.TOOLS = "TOOLS"
-        client = get_instructor_client(sample_config)
-        mock_openai.assert_called_once_with(api_key="test-key-123", base_url=None)
-        mock_instructor.from_openai.assert_called_once_with(mock_openai.return_value, mode="TOOLS")
+    def test_openai_client(self, sample_config):
+        sample_config["ai"]["provider"] = "openai"
+        with pytest.raises(ValueError, match="Unknown provider"):
+            get_instructor_client(sample_config)
+
+    def test_anthropic_client_raises(self, sample_config):
+        sample_config["ai"]["provider"] = "anthropic"
+        with pytest.raises(ValueError, match="Unknown provider"):
+            get_instructor_client(sample_config)
 
     @patch("_ai_processing.OpenAI")
     @patch("_ai_processing.instructor")
