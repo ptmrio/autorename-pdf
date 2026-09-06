@@ -11,9 +11,9 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _ai_processing import DocumentMetadata
 from _pdf_utils import ExtractionResult
-from autorename_pdf_runner import process_pdf, collect_pdf_files, ExitCode, _mod
+from autorename_pdf_runner import process_pdf as _process_pdf, collect_pdf_files, ExitCode, _mod
+from _profiles import build_metadata_model, select_profile
 from conftest import assert_batch_result_schema, assert_undo_result_schema
 
 _handle_rename = _mod._handle_rename
@@ -22,13 +22,29 @@ _handle_undo = _mod._handle_undo
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
+def _run_ctx(config):
+    profile_id, profile = select_profile(config)
+    return {
+        "profile_id": profile_id,
+        "profile": profile,
+        "metadata_model": build_metadata_model(profile),
+    }
+
+
+def process_pdf(pdf_path, config, *args, **kwargs):
+    kwargs.update(_run_ctx(config))
+    return _process_pdf(pdf_path, config, *args, **kwargs)
+
+
 def _mock_metadata(company, date, doc_type):
-    """Create a mock that replaces extract_metadata to return fixed values."""
-    return DocumentMetadata(
-        company_name=company,
-        document_date=date,
-        document_type=doc_type,
-    )
+    """Create metadata for the default business profile."""
+    model = _run_ctx({"company": {"name": ""}, "output": {"language": "English"}, "pdf": {}})["metadata_model"]
+    return model.model_validate({
+        "company_name": company,
+        "document_date": date,
+        "document_type": doc_type,
+        "description": "",
+    })
 
 
 class TestFullPipelineDryRun:
@@ -106,7 +122,10 @@ class TestFullPipelineDryRun:
                 str(tmp_path / ".autorename-log.json"), dry_run=True,
             )
         mock_content.assert_called_once_with(pdf_copy, sample_config)
-        mock_ai.assert_called_once_with(extraction, sample_config)
+        mock_ai.assert_called_once()
+        assert mock_ai.call_args.args == (extraction, sample_config)
+        assert mock_ai.call_args.kwargs["profile"] == _run_ctx(sample_config)["profile"]
+        assert mock_ai.call_args.kwargs["metadata_model"] is not None
         assert result.status == "renamed"
         assert result.error is None
         assert result.new_name == "20240315 ACME ER.pdf"
@@ -339,9 +358,9 @@ class TestWorkflowSimulation:
         # Copy 3 different fixture PDFs to tmp_path
         fixtures = ["text_invoice_acme.pdf", "text_rechnung_mustermann.pdf", "text_letter_globex.pdf"]
         ai_responses = [
-            DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER"),
-            DocumentMetadata(company_name="Mustermann GmbH", document_date="01.01.2024", document_type="ER"),
-            DocumentMetadata(company_name="Globex", document_date="10.06.2023", document_type="Brief"),
+            _mock_metadata("ACME", "15.03.2024", "ER"),
+            _mock_metadata("Mustermann GmbH", "01.01.2024", "ER"),
+            _mock_metadata("Globex", "10.06.2023", "Brief"),
         ]
         paths = []
         for fname in fixtures:
@@ -384,9 +403,7 @@ class TestWorkflowSimulation:
         pdf_copy = str(tmp_path / "text_invoice_acme.pdf")
         shutil.copy2(src, pdf_copy)
 
-        mock_ai.return_value = DocumentMetadata(
-            company_name="ACME", document_date="15.03.2024", document_type="ER",
-        )
+        mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
         # Step 1: Rename
         args = argparse.Namespace(
@@ -435,7 +452,7 @@ class TestWorkflowSimulation:
 
         # AI returns metadata for the good PDF, None for the empty one
         mock_ai.side_effect = [
-            DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER"),
+            _mock_metadata("ACME", "15.03.2024", "ER"),
             None,
         ]
 
@@ -468,9 +485,7 @@ class TestWorkflowSimulation:
         src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
         pdf_copy = str(pdf_dir / "invoice.pdf")
         shutil.copy2(src, pdf_copy)
-        mock_ai.return_value = DocumentMetadata(
-            company_name="ACME", document_date="15.03.2024", document_type="ER",
-        )
+        mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
         args = argparse.Namespace(
             config_path=None, paths=[pdf_copy], dry_run=False,

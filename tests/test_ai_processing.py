@@ -9,8 +9,6 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from _ai_processing import (
-    DocumentMetadata,
-    build_system_prompt,
     pil_to_base64_data_uri,
     get_instructor_client,
     extract_metadata,
@@ -20,58 +18,22 @@ from _ai_processing import (
     _get_anthropic_client,
 )
 from _pdf_utils import ExtractionResult
+from _profiles import build_metadata_model, select_profile
 
 
-class TestDocumentMetadata:
-    def test_valid_metadata(self):
-        m = DocumentMetadata(
-            company_name="ACME",
-            document_date="15.03.2024",
-            document_type="ER"
-        )
-        assert m.company_name == "ACME"
-        assert m.document_date == "15.03.2024"
-        assert m.document_type == "ER"
-
-    def test_empty_values(self):
-        m = DocumentMetadata(
-            company_name="",
-            document_date="",
-            document_type=""
-        )
-        assert m.company_name == ""
+def _ctx(config):
+    profile = select_profile(config)[1]
+    model = build_metadata_model(profile)
+    return profile, model
 
 
-class TestBuildSystemPrompt:
-    def test_contains_company_name(self, sample_config):
-        prompt = build_system_prompt(sample_config)
-        assert "Test Company" in prompt
-
-    def test_contains_invoice_codes(self, sample_config):
-        prompt = build_system_prompt(sample_config)
-        assert "ER" in prompt
-        assert "AR" in prompt
-
-    def test_contains_language(self, sample_config):
-        prompt = build_system_prompt(sample_config)
-        assert "English" in prompt
-
-    def test_custom_invoice_codes(self, sample_config):
-        sample_config["pdf"]["incoming_invoice"] = "EIN"
-        sample_config["pdf"]["outgoing_invoice"] = "AUS"
-        prompt = build_system_prompt(sample_config)
-        assert "EIN" in prompt
-        assert "AUS" in prompt
-
-    def test_prompt_extension(self, sample_config):
-        sample_config["prompt_extension"] = "Also check for VAT numbers."
-        prompt = build_system_prompt(sample_config)
-        assert "Also check for VAT numbers." in prompt
-
-    def test_no_company_name(self, sample_config):
-        sample_config["company"]["name"] = ""
-        prompt = build_system_prompt(sample_config)
-        assert "main company" in prompt
+def _meta(model, company, date, doc_type, description=''):
+    return model.model_validate({
+        'company_name': company,
+        'document_date': date,
+        'document_type': doc_type,
+        'description': description,
+    })
 
 
 class TestPilToBase64DataUri:
@@ -170,14 +132,13 @@ class TestExtractMetadataProviderKwargs:
     def test_compat_provider_includes_temperature(self, mock_prompt, mock_client, sample_config, provider):
         """Gemini/xAI/Ollama instructor calls keep temperature and omit native kwargs."""
         sample_config["ai"].update(provider=provider, temperature=0.7)
+        profile, model = _ctx(sample_config)
         mock_completions = MagicMock()
-        mock_completions.create.return_value = DocumentMetadata(
-            company_name="Test", document_date="01.01.2024", document_type="ER"
-        )
+        mock_completions.create.return_value = _meta(model, "Test", "01.01.2024", "ER")
         mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
 
         from _ai_processing import extract_metadata_from_text
-        extract_metadata_from_text("test text", sample_config)
+        extract_metadata_from_text("test text", sample_config, profile=profile, metadata_model=model)
 
         call_kwargs = mock_completions.create.call_args[1]
         assert call_kwargs["temperature"] == 0.7
@@ -190,15 +151,14 @@ class TestExtractMetadataProviderKwargs:
         """Vision extraction sends image_url content blocks for compat providers."""
         from PIL import Image
         sample_config["ai"]["provider"] = "gemini"
+        profile, model = _ctx(sample_config)
         mock_completions = MagicMock()
-        mock_completions.create.return_value = DocumentMetadata(
-            company_name="Test", document_date="01.01.2024", document_type="ER"
-        )
+        mock_completions.create.return_value = _meta(model, "Test", "01.01.2024", "ER")
         mock_client.return_value = MagicMock(chat=MagicMock(completions=mock_completions))
 
         from _ai_processing import extract_metadata_from_images
         images = [Image.new("RGB", (100, 100))]
-        extract_metadata_from_images(images, sample_config)
+        extract_metadata_from_images(images, sample_config, profile=profile, metadata_model=model)
 
         call_kwargs = mock_completions.create.call_args[1]
         messages = call_kwargs["messages"]
@@ -233,48 +193,46 @@ class TestBuildCombinedText:
 
 class TestExtractMetadata:
     def test_no_content_returns_none(self, sample_config):
+        profile, model = _ctx(sample_config)
         extraction = ExtractionResult(text="", images=[], quality_score=0.0, page_count=0, sources=["text"])
-        result = extract_metadata(extraction, sample_config)
+        result = extract_metadata(extraction, sample_config, profile=profile, metadata_model=model)
         assert result is None
 
     @patch("_ai_processing.extract_metadata_from_text")
     def test_text_extraction(self, mock_extract, sample_config):
-        mock_extract.return_value = DocumentMetadata(
-            company_name="ACME", document_date="15.03.2024", document_type="ER"
-        )
+        profile, model = _ctx(sample_config)
+        mock_extract.return_value = _meta(model, "ACME", "15.03.2024", "ER")
         extraction = ExtractionResult(
             text="Invoice from ACME", images=[], quality_score=0.8,
             page_count=1, sources=["text"]
         )
-        result = extract_metadata(extraction, sample_config)
+        result = extract_metadata(extraction, sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "ACME"
         mock_extract.assert_called_once()
 
     @patch("_ai_processing.extract_metadata_from_images")
     def test_vision_extraction(self, mock_extract, sample_config):
-        mock_extract.return_value = DocumentMetadata(
-            company_name="Globex", document_date="01.01.2024", document_type="AR"
-        )
+        profile, model = _ctx(sample_config)
+        mock_extract.return_value = _meta(model, "Globex", "01.01.2024", "AR")
         img = Image.new("RGB", (100, 100))
         extraction = ExtractionResult(
             text="", images=[img], quality_score=0.0,
             page_count=1, sources=["text", "vision"]
         )
-        result = extract_metadata(extraction, sample_config)
+        result = extract_metadata(extraction, sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "Globex"
         mock_extract.assert_called_once()
 
     @patch("_ai_processing.extract_metadata_from_text_and_images")
     def test_mixed_text_and_images(self, mock_extract, sample_config):
-        mock_extract.return_value = DocumentMetadata(
-            company_name="Mixed", document_date="01.01.2024", document_type="ER"
-        )
+        profile, model = _ctx(sample_config)
+        mock_extract.return_value = _meta(model, "Mixed", "01.01.2024", "ER")
         img = Image.new("RGB", (100, 100))
         extraction = ExtractionResult(
             text="Some text", images=[img], quality_score=0.5,
             page_count=1, sources=["text", "vision"]
         )
-        result = extract_metadata(extraction, sample_config)
+        result = extract_metadata(extraction, sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "Mixed"
         mock_extract.assert_called_once()
 
@@ -317,18 +275,19 @@ class TestNativeStructuredExtract:
     ])
     def test_openai_text_uses_responses_parse(self, sample_config, model, expected_reasoning):
         sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
-        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        profile, metadata_model = _ctx(sample_config)
+        parsed = _meta(metadata_model, "ACME", "15.03.2024", "ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
         mock_client.responses.parse.return_value = mock_resp
         with patch("_ai_processing._get_openai_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_text
-            result = extract_metadata_from_text("invoice text", sample_config)
+            result = extract_metadata_from_text("invoice text", sample_config, profile=profile, metadata_model=metadata_model)
         assert result.company_name == "ACME"
         kwargs = mock_client.responses.parse.call_args.kwargs
         mock_client.responses.parse.assert_called_once()
         assert kwargs["model"] == model
-        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["text_format"] is metadata_model
         assert kwargs["store"] is False
         assert "temperature" not in kwargs
         if expected_reasoning is None:
@@ -341,17 +300,18 @@ class TestNativeStructuredExtract:
     def test_anthropic_text_uses_messages_parse(self, sample_config):
         sample_config["ai"]["provider"] = "anthropic"
         sample_config["ai"]["temperature"] = 0.7
-        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        profile, model = _ctx(sample_config)
+        parsed = _meta(model, "GmbH", "01.01.2024", "ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
         mock_client.messages.parse.return_value = mock_resp
         with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_text
-            result = extract_metadata_from_text("rechnung", sample_config)
+            result = extract_metadata_from_text("rechnung", sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "GmbH"
         kwargs = mock_client.messages.parse.call_args.kwargs
         mock_client.messages.parse.assert_called_once()
-        assert kwargs["output_format"] is DocumentMetadata
+        assert kwargs["output_format"] is model
         assert kwargs["max_tokens"] == 1024
         assert "temperature" not in kwargs
         assert "reasoning" not in kwargs
@@ -365,13 +325,14 @@ class TestNativeStructuredExtract:
     ])
     def test_openai_vision_puts_images_in_input(self, sample_config, sample_pil_image, model, expected_reasoning):
         sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
-        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        profile, metadata_model = _ctx(sample_config)
+        parsed = _meta(metadata_model, "ACME", "15.03.2024", "ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
         mock_client.responses.parse.return_value = mock_resp
         with patch("_ai_processing._get_openai_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_images
-            result = extract_metadata_from_images([sample_pil_image], sample_config)
+            result = extract_metadata_from_images([sample_pil_image], sample_config, profile=profile, metadata_model=metadata_model)
         assert result.company_name == "ACME"
         kwargs = mock_client.responses.parse.call_args.kwargs
         assert "input" in kwargs
@@ -383,7 +344,7 @@ class TestNativeStructuredExtract:
         assert not any(c.get("type") == "image_url" for c in contents)
         mock_client.responses.parse.assert_called_once()
         assert kwargs["model"] == model
-        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["text_format"] is metadata_model
         assert kwargs["store"] is False
         assert "temperature" not in kwargs
         if expected_reasoning is None:
@@ -396,16 +357,17 @@ class TestNativeStructuredExtract:
     def test_anthropic_vision_keeps_image_blocks_in_messages(self, sample_config, sample_pil_image):
         sample_config["ai"]["provider"] = "anthropic"
         sample_config["ai"]["temperature"] = 0.7
-        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        profile, model = _ctx(sample_config)
+        parsed = _meta(model, "GmbH", "01.01.2024", "ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
         mock_client.messages.parse.return_value = mock_resp
         with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_images
-            result = extract_metadata_from_images([sample_pil_image], sample_config)
+            result = extract_metadata_from_images([sample_pil_image], sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "GmbH"
         kwargs = mock_client.messages.parse.call_args.kwargs
-        assert kwargs["output_format"] is DocumentMetadata
+        assert kwargs["output_format"] is model
         user_content = kwargs["messages"][0]["content"]
         assert isinstance(user_content, list)
         image_blocks = [c for c in user_content if c.get("type") == "image"]
@@ -425,19 +387,20 @@ class TestNativeStructuredExtract:
     ])
     def test_openai_text_and_images_uses_responses_parse(self, sample_config, sample_pil_image, model, expected_reasoning):
         sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
-        parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
+        profile, metadata_model = _ctx(sample_config)
+        parsed = _meta(metadata_model, "ACME", "15.03.2024", "ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
         mock_client.responses.parse.return_value = mock_resp
         with patch("_ai_processing._get_openai_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_text_and_images
-            result = extract_metadata_from_text_and_images("invoice text", [sample_pil_image], sample_config)
+            result = extract_metadata_from_text_and_images("invoice text", [sample_pil_image], sample_config, profile=profile, metadata_model=metadata_model)
         assert result.company_name == "ACME"
         kwargs = mock_client.responses.parse.call_args.kwargs
         assert "input" in kwargs
         mock_client.responses.parse.assert_called_once()
         assert kwargs["model"] == model
-        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["text_format"] is metadata_model
         assert kwargs["store"] is False
         assert "temperature" not in kwargs
         if expected_reasoning is None:
@@ -450,17 +413,18 @@ class TestNativeStructuredExtract:
     def test_anthropic_text_and_images_uses_messages_parse(self, sample_config, sample_pil_image):
         sample_config["ai"]["provider"] = "anthropic"
         sample_config["ai"]["temperature"] = 0.7
-        parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
+        profile, model = _ctx(sample_config)
+        parsed = _meta(model, "GmbH", "01.01.2024", "ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
         mock_client.messages.parse.return_value = mock_resp
         with patch("_ai_processing._get_anthropic_client", return_value=mock_client):
             from _ai_processing import extract_metadata_from_text_and_images
-            result = extract_metadata_from_text_and_images("rechnung", [sample_pil_image], sample_config)
+            result = extract_metadata_from_text_and_images("rechnung", [sample_pil_image], sample_config, profile=profile, metadata_model=model)
         assert result.company_name == "GmbH"
         kwargs = mock_client.messages.parse.call_args.kwargs
         mock_client.messages.parse.assert_called_once()
-        assert kwargs["output_format"] is DocumentMetadata
+        assert kwargs["output_format"] is model
         assert kwargs["max_tokens"] == 1024
         assert "temperature" not in kwargs
         assert "reasoning" not in kwargs

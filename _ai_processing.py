@@ -8,7 +8,7 @@ import base64
 import io
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from PIL import Image
 import instructor
 from openai import OpenAI
@@ -21,19 +21,6 @@ PROVIDER_BASE_URLS = {
     "xai": "https://api.x.ai/v1",
     "ollama": "http://localhost:11434/v1",
 }
-
-
-class DocumentMetadata(BaseModel):
-    """Structured output model for document metadata extraction."""
-    company_name: str = Field(
-        description="Counterparty company name, stripped of legal form (GmbH, AG, Ltd, e.U., SARL, etc.)"
-    )
-    document_date: str = Field(
-        description="Most relevant date (invoice date, letter date) in dd.mm.YYYY format"
-    )
-    document_type: str = Field(
-        description="ER for incoming invoice, AR for outgoing invoice, or short descriptive type"
-    )
 
 
 def get_instructor_client(config: dict):
@@ -58,49 +45,28 @@ def get_instructor_client(config: dict):
     return instructor.from_openai(raw, mode=mode)
 
 
-def build_system_prompt(config: dict) -> str:
-    """Build the extraction prompt from config values."""
-    company = config.get("company", {}).get("name", "")
-    lang = config.get("output", {}).get("language", "English")
-    er = config.get("pdf", {}).get("incoming_invoice", "ER")
-    ar = config.get("pdf", {}).get("outgoing_invoice", "AR")
-    ext = config.get("prompt_extension", "")
-
-    prompt = (
-        "You will extract the company name, document date, and document type "
-        "from the following document content. "
-        "Due to the nature of OCR text detection, the text may be noisy and contain "
-        "spelling and detection errors. Handle those as well as possible.\n\n"
-        "document_date: Find the most appropriate date (e.g. the invoice date) and "
-        "assume the correct date format according to the language and location of the document. "
-        "Return format must be: dd.mm.YYYY\n\n"
+def build_system_prompt(config: dict, profile: dict) -> str:
+    """Assemble the extraction prompt from a resolved profile. Does not interpolate."""
+    parts = [
+        "Extract the requested fields from the document content. Due to OCR text detection, "
+        "the text may be noisy and contain spelling and detection errors. Handle those as well as possible."
+    ]
+    intro = profile.get("intro") or ""
+    if intro:
+        parts.append(intro)
+    parts.append("\n\n".join(
+        f"{name}: {spec['description']}"
+        for name, spec in profile["fields"].items()
+    ))
+    parts.append(
+        "Return every requested field as a string. If a value is not found, return an empty string. "
+        "Do not invent missing values or return undeclared fields."
     )
-
-    if company:
-        prompt += (
-            f'company_name: Find the name of the company that is the corresponding party '
-            f'of the document. My company name is: "{company}", avoid using my company name '
-            f'as company_name in the response. For the company_name you always strip the '
-            f'legal form (e.U., SARL, GmbH, AG, Ltd, Limited, etc.)\n\n'
-        )
-    else:
-        prompt += (
-            "company_name: Find the name of the main company in the document. "
-            "Strip the legal form (e.U., SARL, GmbH, AG, Ltd, Limited, etc.)\n\n"
-        )
-
-    prompt += (
-        f"document_type: Find the best matching type of the document. Valid document types are: "
-        f"For incoming invoices (invoices my company receives) use the term '{er}' only, nothing more. "
-        f"For outgoing invoices (invoices my company sends) use the term '{ar}', nothing more. "
-        f"For all other document types, always find a short descriptive summary/subject in {lang} language.\n\n"
-        "If a value is not found, leave it empty."
-    )
-
+    prompt = "\n\n".join(parts)
+    ext = config.get("prompt_extension") or ""
     if ext:
         prompt += f"\n\n{ext}"
-
-    return prompt.strip()
+    return prompt
 
 
 def pil_to_base64_data_uri(image: Image.Image, fmt: str = "PNG") -> str:
@@ -179,51 +145,56 @@ def _openai_input_image_blocks(images: list) -> list[dict]:
     ]
 
 
-def _extract_openai_native(config: dict, user_content: list) -> DocumentMetadata:
+def _extract_openai_native(config: dict, user_content: list, *, profile: dict, metadata_model: type[BaseModel]) -> BaseModel:
     client = _get_openai_client(config)
     response = client.responses.parse(
         model=config["ai"]["model"],
         input=[
-            {"role": "system", "content": [_openai_input_text_block(build_system_prompt(config))]},
+            {"role": "system", "content": [_openai_input_text_block(build_system_prompt(config, profile))]},
             {"role": "user", "content": user_content},
         ],
-        text_format=DocumentMetadata,
+        text_format=metadata_model,
         store=False,
         **build_provider_create_kwargs("openai", config),
     )
     return response.output_parsed
 
 
-def _extract_anthropic_native(config: dict, user_content) -> DocumentMetadata:
+def _extract_anthropic_native(config: dict, user_content, *, profile: dict, metadata_model: type[BaseModel]) -> BaseModel:
     client = _get_anthropic_client(config)
     response = client.messages.parse(
         model=config["ai"]["model"],
-        system=build_system_prompt(config),
+        system=build_system_prompt(config, profile),
         messages=[{"role": "user", "content": user_content}],
-        output_format=DocumentMetadata,
+        output_format=metadata_model,
         **build_provider_create_kwargs("anthropic", config),
     )
     return response.parsed_output
 
 
-def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
+def extract_metadata_from_text(text: str, config: dict, *, profile: dict, metadata_model: type[BaseModel]) -> BaseModel:
     """Extract document metadata from text using an LLM."""
     provider = config["ai"]["provider"]
     user_text = f"Extract the information from this text:\n\n{text}"
     if provider == "openai":
-        return _extract_openai_native(config, [_openai_input_text_block(user_text)])
+        return _extract_openai_native(
+            config, [_openai_input_text_block(user_text)],
+            profile=profile, metadata_model=metadata_model,
+        )
     if provider == "anthropic":
-        return _extract_anthropic_native(config, user_text)
+        return _extract_anthropic_native(
+            config, user_text, profile=profile, metadata_model=metadata_model,
+        )
 
     client = get_instructor_client(config)
 
     kwargs = build_provider_create_kwargs(provider, config)
     kwargs.update({
         "model": config["ai"]["model"],
-        "response_model": DocumentMetadata,
+        "response_model": metadata_model,
         "max_retries": config["ai"].get("max_retries", 2),
         "messages": [
-            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "system", "content": build_system_prompt(config, profile)},
             {"role": "user", "content": user_text}
         ],
     })
@@ -231,20 +202,20 @@ def extract_metadata_from_text(text: str, config: dict) -> DocumentMetadata:
     return client.chat.completions.create(**kwargs)
 
 
-def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata:
+def extract_metadata_from_images(images: list, config: dict, *, profile: dict, metadata_model: type[BaseModel]) -> BaseModel:
     """Extract document metadata from page images using a vision-capable LLM."""
     provider = config["ai"]["provider"]
     if provider == "openai":
         return _extract_openai_native(config, [
             _openai_input_text_block("Extract document metadata from these page images:"),
             *_openai_input_image_blocks(images),
-        ])
+        ], profile=profile, metadata_model=metadata_model)
     if provider == "anthropic":
         image_content = build_image_content(images, "anthropic")
         return _extract_anthropic_native(config, [
             {"type": "text", "text": "Extract document metadata from these page images:"},
             *image_content,
-        ])
+        ], profile=profile, metadata_model=metadata_model)
 
     client = get_instructor_client(config)
     image_content = build_image_content(images, provider)
@@ -252,10 +223,10 @@ def extract_metadata_from_images(images: list, config: dict) -> DocumentMetadata
     kwargs = build_provider_create_kwargs(provider, config)
     kwargs.update({
         "model": config["ai"]["model"],
-        "response_model": DocumentMetadata,
+        "response_model": metadata_model,
         "max_retries": config["ai"].get("max_retries", 2),
         "messages": [
-            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "system", "content": build_system_prompt(config, profile)},
             {"role": "user", "content": [
                 {"type": "text", "text": "Extract document metadata from these page images:"},
                 *image_content
@@ -279,8 +250,8 @@ def _build_combined_text(extraction: ExtractionResult) -> str:
 
 
 def extract_metadata_from_text_and_images(
-    text: str, images: list, config: dict
-) -> DocumentMetadata:
+    text: str, images: list, config: dict, *, profile: dict, metadata_model: type[BaseModel],
+) -> BaseModel:
     """Extract metadata from combined text + page images (multimodal)."""
     provider = config["ai"]["provider"]
     user_text = f"Extract document metadata from this text and images:\n\n{text}"
@@ -288,13 +259,13 @@ def extract_metadata_from_text_and_images(
         return _extract_openai_native(config, [
             _openai_input_text_block(user_text),
             *_openai_input_image_blocks(images),
-        ])
+        ], profile=profile, metadata_model=metadata_model)
     if provider == "anthropic":
         image_content = build_image_content(images, "anthropic")
         return _extract_anthropic_native(config, [
             {"type": "text", "text": user_text},
             *image_content,
-        ])
+        ], profile=profile, metadata_model=metadata_model)
 
     client = get_instructor_client(config)
     image_content = build_image_content(images, provider)
@@ -302,10 +273,10 @@ def extract_metadata_from_text_and_images(
     kwargs = build_provider_create_kwargs(provider, config)
     kwargs.update({
         "model": config["ai"]["model"],
-        "response_model": DocumentMetadata,
+        "response_model": metadata_model,
         "max_retries": config["ai"].get("max_retries", 2),
         "messages": [
-            {"role": "system", "content": build_system_prompt(config)},
+            {"role": "system", "content": build_system_prompt(config, profile)},
             {"role": "user", "content": [
                 {"type": "text", "text": user_text},
                 *image_content,
@@ -316,18 +287,21 @@ def extract_metadata_from_text_and_images(
     return client.chat.completions.create(**kwargs)
 
 
-def extract_metadata(extraction: ExtractionResult, config: dict) -> DocumentMetadata | None:
+def extract_metadata(
+    extraction: ExtractionResult, config: dict, *, profile: dict, metadata_model: type[BaseModel],
+) -> BaseModel | None:
     """Extract metadata from an ExtractionResult using the appropriate method."""
     combined_text = _build_combined_text(extraction)
     has_text = bool(combined_text.strip())
     has_images = bool(extraction.images)
+    ctx = {"profile": profile, "metadata_model": metadata_model}
 
     if has_text and has_images:
-        return extract_metadata_from_text_and_images(combined_text, extraction.images, config)
+        return extract_metadata_from_text_and_images(combined_text, extraction.images, config, **ctx)
     elif has_images:
-        return extract_metadata_from_images(extraction.images, config)
+        return extract_metadata_from_images(extraction.images, config, **ctx)
     elif has_text:
-        return extract_metadata_from_text(combined_text, config)
+        return extract_metadata_from_text(combined_text, config, **ctx)
     else:
         logging.error("No text or images available for metadata extraction")
         return None

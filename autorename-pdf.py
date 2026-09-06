@@ -33,6 +33,7 @@ from _document_processing import (
 )
 from _utils import ExitCode, normalize_unicode
 from _version import VERSION
+from _profiles import build_metadata_model, select_profile
 
 
 def _configure_stdio_utf8() -> None:
@@ -334,6 +335,10 @@ def process_pdf(
     dry_run: bool = False,
     output: Console | None = None,
     batch_id: str = None,
+    *,
+    profile_id: str,
+    profile: dict,
+    metadata_model,
 ) -> FileResult:
     """Process a single PDF file. Returns a FileResult with status and metadata."""
     logging.info(f"Processing {pdf_path}")
@@ -372,7 +377,9 @@ def process_pdf(
             return result
 
         # Step 2: AI metadata extraction
-        metadata = extract_metadata(extraction, config)
+        metadata = extract_metadata(
+            extraction, config, profile=profile, metadata_model=metadata_model,
+        )
         if metadata is None:
             logging.warning(f"Could not extract metadata from {pdf_path}")
             if output:
@@ -849,6 +856,17 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
     if getattr(args, "ocr", False):
         config["pdf"]["ocr"] = True
 
+    try:
+        profile_id, profile = select_profile(config, getattr(args, "profile", None))
+        metadata_model = build_metadata_model(profile)
+    except ValueError as exc:
+        error_exit(
+            "config_error",
+            str(exc),
+            exit_code=ExitCode.CONFIG_ERROR,
+            output_format=output_format,
+        )
+
     # Collect PDF files
     paths = getattr(args, "paths", [])
     if not paths:
@@ -901,6 +919,7 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
         file_result = process_pdf(
             pdf_path, config, yaml_path, undo_log_path,
             dry_run=dry_run, output=progress_con, batch_id=batch_id,
+            profile_id=profile_id, profile=profile, metadata_model=metadata_model,
         )
         file_results.append(file_result)
 

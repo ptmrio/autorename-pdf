@@ -28,8 +28,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from _pdf_utils import extract_content
 from _ai_processing import extract_metadata
+from _profiles import build_metadata_model, select_profile
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _live_ctx(config: dict):
+    _, profile = select_profile(config)
+    return profile, build_metadata_model(profile)
+
+
+def _live_process(pdf_path, config, *args, **kwargs):
+    from autorename_pdf_runner import process_pdf
+    profile_id, profile = select_profile(config)
+    kwargs.update(
+        profile_id=profile_id,
+        profile=profile,
+        metadata_model=build_metadata_model(profile),
+    )
+    return process_pdf(pdf_path, config, *args, **kwargs)
 
 
 def _extract(pdf_name: str, config: dict):
@@ -37,7 +54,8 @@ def _extract(pdf_name: str, config: dict):
     pdf = os.path.join(FIXTURES_DIR, pdf_name)
     extraction = extract_content(pdf, config)
     assert "text" in extraction.sources
-    metadata = extract_metadata(extraction, config)
+    profile, model = _live_ctx(config)
+    metadata = extract_metadata(extraction, config, profile=profile, metadata_model=model)
     assert metadata is not None, f"AI returned None for {pdf_name}"
     provider = config["ai"]["provider"]
     model = config["ai"]["model"]
@@ -52,7 +70,8 @@ def _extract_full(pdf_name: str, config: dict):
     """Helper: extract + AI metadata, returning (metadata, sources, quality_score)."""
     pdf = os.path.join(FIXTURES_DIR, pdf_name)
     extraction = extract_content(pdf, config)
-    metadata = extract_metadata(extraction, config)
+    profile, model = _live_ctx(config)
+    metadata = extract_metadata(extraction, config, profile=profile, metadata_model=model)
     assert metadata is not None, f"AI returned None for {pdf_name}"
     provider = config["ai"]["provider"]
     model = config["ai"]["model"]
@@ -181,14 +200,19 @@ class TestLiveFullRename:
     def _rename_and_undo(self, config, tmp_path):
         from autorename_pdf_runner import process_pdf
         from _document_processing import undo_renames
+        from _profiles import build_metadata_model, select_profile
 
         src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
         pdf_copy = str(tmp_path / "invoice_to_rename.pdf")
         shutil.copy2(src, pdf_copy)
 
         undo_log = str(tmp_path / ".autorename-log.json")
-        result = process_pdf(pdf_copy, config, str(tmp_path / "names.yaml"),
-                             undo_log, dry_run=False, batch_id="test-batch-001")
+        profile_id, profile = select_profile(config)
+        result = process_pdf(
+            pdf_copy, config, str(tmp_path / "names.yaml"),
+            undo_log, dry_run=False, batch_id="test-batch-001",
+            profile_id=profile_id, profile=profile, metadata_model=build_metadata_model(profile),
+        )
 
         provider = config["ai"]["provider"]
         print(f"\n  [{provider}] status={result.status} new_name={result.new_name}")
@@ -419,7 +443,7 @@ class TestLiveHarmonization:
         pdf_copy = str(tmp_path / "acme_invoice.pdf")
         shutil.copy2(src, pdf_copy)
 
-        result = process_pdf(pdf_copy, openai_config, live_harmonized_names,
+        result = _live_process(pdf_copy, openai_config, live_harmonized_names,
                              str(tmp_path / ".autorename-log.json"),
                              dry_run=True, batch_id="test-harmonize")
 
@@ -436,7 +460,7 @@ class TestLiveHarmonization:
         pdf_copy = str(tmp_path / "mustermann_rechnung.pdf")
         shutil.copy2(src, pdf_copy)
 
-        result = process_pdf(pdf_copy, openai_config, live_harmonized_names,
+        result = _live_process(pdf_copy, openai_config, live_harmonized_names,
                              str(tmp_path / ".autorename-log.json"),
                              dry_run=True, batch_id="test-harmonize")
 
