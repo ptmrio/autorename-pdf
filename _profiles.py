@@ -1,10 +1,16 @@
 """Extraction profile built-ins, overlay resolution, and selection. Functions only."""
 from __future__ import annotations
 
+import keyword
 from copy import deepcopy
 
+from pydantic import BaseModel
+
+_PROFILE_KEYS = {"intro", "fields", "template", "truncate_field", "harmonize_field", "extends"}
 _PROFILE_SCALARS = ("intro", "template", "truncate_field", "harmonize_field")
+_FIELD_SPEC_KEYS = {"description"}
 _BUILTIN_IDS = ("business", "academic")
+_PROMPT_PLACEHOLDERS = ("company", "language", "incoming_invoice", "outgoing_invoice")
 
 
 def _company_name_description(config: dict) -> str:
@@ -102,71 +108,260 @@ def builtin_profiles(config: dict) -> dict[str, dict]:
     return {"business": business, "academic": academic}
 
 
+def _check_declared_id(profile_id) -> str:
+    if not isinstance(profile_id, str) or not profile_id or profile_id != profile_id.strip():
+        raise ValueError(f"invalid profile id {profile_id!r}")
+    return profile_id
+
+
+def _check_selected_id(profile_id) -> str:
+    if not isinstance(profile_id, str) or not profile_id or profile_id != profile_id.strip():
+        raise ValueError(f"invalid profile id {profile_id!r}")
+    return profile_id
+
+
+def _valid_field_id(field_id) -> bool:
+    if not isinstance(field_id, str) or not field_id:
+        return False
+    if not field_id.isidentifier() or keyword.iskeyword(field_id):
+        return False
+    if field_id.startswith("_") or field_id.startswith("model_"):
+        return False
+    if hasattr(BaseModel, field_id):
+        return False
+    return True
+
+
+def _parse_placeholders(text: str) -> list[str]:
+    if not isinstance(text, str):
+        raise ValueError("text must be a string")
+    names: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "{":
+            if i + 1 < n and text[i + 1] == "{":
+                i += 2
+                continue
+            close = text.find("}", i + 1)
+            if close < 0:
+                raise ValueError("unclosed brace")
+            name = text[i + 1:close]
+            if not name.isidentifier():
+                raise ValueError(f"invalid placeholder {{{name}}}")
+            names.append(name)
+            i = close + 1
+            continue
+        if ch == "}":
+            if i + 1 < n and text[i + 1] == "}":
+                i += 2
+                continue
+            raise ValueError("unmatched brace")
+        i += 1
+    return names
+
+
+def interpolate_profile_text(text: str, config: dict) -> str:
+    """Expand the four allowed prompt placeholders. Substituted braces stay literal."""
+    values = {
+        "company": str((config.get("company") or {}).get("name") or ""),
+        "language": str((config.get("output") or {}).get("language") or ""),
+        "incoming_invoice": str((config.get("pdf") or {}).get("incoming_invoice") or ""),
+        "outgoing_invoice": str((config.get("pdf") or {}).get("outgoing_invoice") or ""),
+    }
+    names = _parse_placeholders(text)
+    for name in names:
+        if name not in values:
+            raise ValueError(f"unknown prompt placeholder {name!r}")
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "{":
+            if i + 1 < n and text[i + 1] == "{":
+                out.append("{")
+                i += 2
+                continue
+            close = text.find("}", i + 1)
+            name = text[i + 1:close]
+            out.append(values[name])
+            i = close + 1
+            continue
+        if ch == "}":
+            out.append("}")
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _validate_overlay_shape(profile_id: str, overlay, *, allow_extends: bool) -> None:
+    if overlay is None:
+        raise ValueError(f"profile {profile_id!r} is null")
+    if not isinstance(overlay, dict):
+        raise ValueError(f"profile {profile_id!r} must be a mapping")
+    extra = set(overlay) - _PROFILE_KEYS
+    if extra:
+        raise ValueError(f"unknown keys on profile {profile_id!r}: {sorted(extra)}")
+    if "extends" in overlay:
+        if not allow_extends:
+            raise ValueError(f"built-in profile {profile_id!r} cannot set extends")
+        parent = overlay["extends"]
+        if not isinstance(parent, str):
+            raise ValueError(f"profile {profile_id!r} extends must be a single id")
+    if "intro" in overlay and overlay["intro"] is not None and not isinstance(overlay["intro"], str):
+        raise ValueError(f"profile {profile_id!r} intro must be a string")
+    if overlay.get("intro") is None and "intro" in overlay:
+        raise ValueError(f"profile {profile_id!r} intro is null")
+    if "template" in overlay:
+        template = overlay["template"]
+        if not isinstance(template, str) or not template:
+            raise ValueError(f"profile {profile_id!r} template is empty")
+    if "fields" in overlay:
+        fields = overlay["fields"]
+        if not isinstance(fields, dict):
+            raise ValueError(f"profile {profile_id!r} fields must be a mapping")
+        for field_id, spec in fields.items():
+            if spec is None:
+                continue
+            if not _valid_field_id(field_id):
+                raise ValueError(f"invalid field id {field_id!r}")
+            if not isinstance(spec, dict):
+                raise ValueError(f"field {field_id!r} must be a mapping")
+            if set(spec) - _FIELD_SPEC_KEYS:
+                raise ValueError(f"unknown keys on field {field_id!r}")
+            description = spec.get("description")
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError(f"field {field_id!r} description is empty")
+
+
 def _apply_overlay(base: dict, overlay: dict) -> dict:
     result = deepcopy(base)
     for key in _PROFILE_SCALARS:
         if key in overlay:
             result[key] = overlay[key]
-    if "intro" not in result:
-        result["intro"] = ""
-    if "harmonize_field" not in result:
-        result["harmonize_field"] = None
+    result.setdefault("intro", "")
+    result.setdefault("harmonize_field", None)
     fields_overlay = overlay.get("fields")
     if fields_overlay is None:
+        result.pop("extends", None)
         return result
     fields = result.setdefault("fields", {})
     for field_id, spec in fields_overlay.items():
         if spec is None:
-            fields.pop(field_id, None)
-        elif field_id in fields:
-            fields[field_id] = deepcopy(spec)
+            if field_id not in fields:
+                raise ValueError(f"cannot delete missing field {field_id!r}")
+            if field_id == "document_date":
+                raise ValueError("document_date cannot be deleted")
+            del fields[field_id]
         else:
-            fields[field_id] = deepcopy(spec)
+            if not _valid_field_id(field_id):
+                raise ValueError(f"invalid field id {field_id!r}")
+            if field_id in fields:
+                fields[field_id] = deepcopy(spec)
+            else:
+                fields[field_id] = deepcopy(spec)
+    result.pop("extends", None)
     return result
 
 
 def _standalone_defaults(definition: dict) -> dict:
     result = deepcopy(definition)
+    result.pop("extends", None)
     result.setdefault("intro", "")
     result.setdefault("harmonize_field", None)
     result.setdefault("fields", {})
     return result
 
 
+def _template_placeholders(template: str) -> list[str]:
+    if "/" in template or "\\" in template:
+        raise ValueError("template cannot contain path separators")
+    if template.lower().endswith(".pdf"):
+        raise ValueError("template must not include .pdf")
+    return _parse_placeholders(template)
+
+
+def _validate_resolved(profile_id: str, profile: dict) -> None:
+    fields = profile.get("fields")
+    if not isinstance(fields, dict) or "document_date" not in fields:
+        raise ValueError(f"profile {profile_id!r} must include document_date")
+    template = profile.get("template")
+    if not isinstance(template, str) or not template:
+        raise ValueError(f"profile {profile_id!r} is missing template")
+    names = _template_placeholders(template)
+    field_ids = set(fields)
+    for name in names:
+        if name not in field_ids:
+            raise ValueError(f"template placeholder {name!r} is not a field")
+    truncate = profile.get("truncate_field")
+    if truncate == "document_date" or truncate not in field_ids or f"{{{truncate}}}" not in template:
+        raise ValueError(f"invalid truncate_field {truncate!r}")
+    # require the placeholder actually used, not merely a substring
+    if truncate not in names:
+        raise ValueError(f"truncate_field {truncate!r} is not in the template")
+    harmonize = profile.get("harmonize_field", None)
+    if harmonize is not None:
+        if harmonize == "document_date" or harmonize not in field_ids:
+            raise ValueError(f"invalid harmonize_field {harmonize!r}")
+    intro = profile.get("intro", "")
+    if not isinstance(intro, str):
+        raise ValueError(f"profile {profile_id!r} intro must be a string")
+
+
+def _interpolate_profile(profile: dict, config: dict) -> dict:
+    result = deepcopy(profile)
+    result["intro"] = interpolate_profile_text(result.get("intro") or "", config)
+    for spec in result["fields"].values():
+        spec["description"] = interpolate_profile_text(spec["description"], config)
+    return result
+
+
 def resolve_profiles(config: dict) -> dict[str, dict]:
-    """Fresh, fully merged profiles: built-ins, then custom declaration order."""
+    """Fresh, fully merged and interpolated profiles."""
     resolved = builtin_profiles(config)
     declarations = config.get("profiles") or {}
     if not isinstance(declarations, dict):
         raise ValueError("profiles must be a mapping")
+    for profile_id in declarations:
+        _check_declared_id(profile_id)
 
     for profile_id, overlay in declarations.items():
-        if profile_id in _BUILTIN_IDS:
-            if overlay is None:
-                raise ValueError(f"profile {profile_id!r} is null")
-            resolved[profile_id] = _apply_overlay(resolved[profile_id], overlay)
+        if profile_id not in _BUILTIN_IDS:
+            continue
+        _validate_overlay_shape(profile_id, overlay, allow_extends=False)
+        resolved[profile_id] = _apply_overlay(resolved[profile_id], overlay)
 
     for profile_id, definition in declarations.items():
         if profile_id in _BUILTIN_IDS:
             continue
-        if definition is None:
-            raise ValueError(f"profile {profile_id!r} is null")
-        parent_id = definition.get("extends")
+        _validate_overlay_shape(profile_id, definition, allow_extends=True)
+        parent_id = definition.get("extends") if isinstance(definition, dict) else None
         if parent_id:
             if parent_id not in resolved:
                 raise ValueError(f"unknown parent {parent_id!r} for profile {profile_id!r}")
-            parent = resolved[parent_id]
-            resolved[profile_id] = _apply_overlay(parent, definition)
+            resolved[profile_id] = _apply_overlay(resolved[parent_id], definition)
         else:
+            if not isinstance(definition, dict):
+                raise ValueError(f"profile {profile_id!r} must be a mapping")
+            if "template" not in definition or "truncate_field" not in definition:
+                raise ValueError(f"standalone profile {profile_id!r} is missing settings")
             resolved[profile_id] = _standalone_defaults(definition)
-        resolved[profile_id].pop("extends", None)
+
+    for profile_id, profile in resolved.items():
+        _validate_resolved(profile_id, profile)
+        resolved[profile_id] = _interpolate_profile(profile, config)
     return resolved
 
 
 def select_profile(config: dict, profile_id: str | None = None) -> tuple[str, dict]:
     """Select a resolved profile. Does not mutate config."""
     profiles = resolve_profiles(config)
-    selected = profile_id if profile_id is not None else config.get("profile", "business")
+    selected = config.get("profile", "business") if profile_id is None else profile_id
+    selected = _check_selected_id(selected)
     if selected not in profiles:
         raise ValueError(f"unknown profile {selected!r}")
     return selected, deepcopy(profiles[selected])
