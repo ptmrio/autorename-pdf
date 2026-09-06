@@ -364,7 +364,7 @@ def process_pdf(
             for w in extraction.warnings:
                 _step(output, "\u26a0", "yellow", w)
 
-        if not extraction.text.strip() and not extraction.images:
+        if not extraction.text.strip() and not extraction.ocr_text.strip() and not extraction.images:
             logging.warning(f"No content extracted from {pdf_path}")
             if output:
                 _step(output, "\u2717", "red", "No content extracted")

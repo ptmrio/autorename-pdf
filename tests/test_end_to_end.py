@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _ai_processing import DocumentMetadata
+from _pdf_utils import ExtractionResult
 from autorename_pdf_runner import process_pdf, collect_pdf_files, ExitCode, _mod
 from conftest import assert_batch_result_schema, assert_undo_result_schema
 
@@ -86,6 +87,31 @@ class TestFullPipelineDryRun:
         result = process_pdf(pdf_copy, sample_config, str(tmp_path / "names.yaml"),
                              str(tmp_path / ".autorename-log.json"), dry_run=True)
         assert result.status == "renamed"
+
+    def test_ocr_only_dry_run(self, tmp_path, sample_config):
+        sample_config["pdf"].update(ocr=True, vision=False)
+        pdf_copy = str(tmp_path / "ocr_only.pdf")
+        shutil.copy2(os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf"), pdf_copy)
+        extraction = ExtractionResult(
+            text="", ocr_text="ACME invoice dated 15.03.2024", images=[],
+            quality_score=0.0, page_count=1, sources=["text", "ocr"],
+        )
+        with (
+            patch("autorename_pdf.extract_content", return_value=extraction) as mock_content,
+            patch("autorename_pdf.extract_metadata",
+                  return_value=_mock_metadata("ACME", "15.03.2024", "ER")) as mock_ai,
+        ):
+            result = process_pdf(
+                pdf_copy, sample_config, str(tmp_path / "names.yaml"),
+                str(tmp_path / ".autorename-log.json"), dry_run=True,
+            )
+        mock_content.assert_called_once_with(pdf_copy, sample_config)
+        mock_ai.assert_called_once_with(extraction, sample_config)
+        assert result.status == "renamed"
+        assert result.error is None
+        assert result.new_name == "20240315 ACME ER.pdf"
+        assert os.path.exists(pdf_copy)
+        assert not (tmp_path / "20240315 ACME ER.pdf").exists()
 
 
 class TestFullPipelineRealRename:
@@ -212,6 +238,28 @@ class TestFullPipelineFailures:
                              str(tmp_path / ".autorename-log.json"), dry_run=False)
         assert result.status == "failed"
         # Original should still exist
+        assert os.path.exists(pdf_copy)
+
+    @pytest.mark.parametrize("text", ["", " \t\n"], ids=["empty-text", "blank-text"])
+    @pytest.mark.parametrize("ocr_text", ["", " \t\n"], ids=["empty-ocr", "blank-ocr"])
+    def test_empty_or_whitespace_ocr_fails(self, tmp_path, sample_config, text, ocr_text):
+        sample_config["pdf"].update(ocr=True, vision=False)
+        pdf_copy = str(tmp_path / "empty_ocr.pdf")
+        shutil.copy2(os.path.join(FIXTURES_DIR, "empty.pdf"), pdf_copy)
+        extraction = ExtractionResult(
+            text=text, ocr_text=ocr_text, images=[], sources=["text", "ocr"],
+        )
+        with (
+            patch("autorename_pdf.extract_content", return_value=extraction),
+            patch("autorename_pdf.extract_metadata") as mock_ai,
+        ):
+            result = process_pdf(
+                pdf_copy, sample_config, str(tmp_path / "names.yaml"),
+                str(tmp_path / ".autorename-log.json"), dry_run=True,
+            )
+        assert result.status == "failed"
+        assert result.error == "No content extracted"
+        mock_ai.assert_not_called()
         assert os.path.exists(pdf_copy)
 
     @patch("autorename_pdf.extract_metadata", return_value=None)
