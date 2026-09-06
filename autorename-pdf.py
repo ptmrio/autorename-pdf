@@ -25,7 +25,8 @@ from _pdf_utils import extract_content
 from _document_processing import (
     harmonize_company_name,
     parse_document_date,
-    rename_invoice,
+    render_filename,
+    rename_document,
     undo_renames,
     generate_batch_id,
     list_undo_batches,
@@ -33,7 +34,7 @@ from _document_processing import (
 )
 from _utils import ExitCode, normalize_unicode
 from _version import VERSION
-from _profiles import build_metadata_model, select_profile
+from _profiles import build_metadata_model, resolve_profiles, select_profile
 
 
 def _configure_stdio_utf8() -> None:
@@ -74,6 +75,8 @@ class FileResult:
     doc_type: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
+    profile: Optional[str] = None
+    fields: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -350,6 +353,7 @@ def process_pdf(
         status="failed",
         provider=provider,
         model=model,
+        profile=profile_id,
     )
 
     try:
@@ -390,17 +394,27 @@ def process_pdf(
         if output:
             _step(output, "\u2713", "green", "AI", f"{provider} / {model}")
 
-        # Step 3: Harmonize + rename
-        company_name = harmonize_company_name(metadata.company_name, yaml_path, config)
-        parsed_date = parse_document_date(metadata.document_date)
+        result.fields = metadata.model_dump().copy()
+        working = dict(result.fields)
+        harmonize_field = profile.get("harmonize_field")
+        if harmonize_field:
+            working[harmonize_field] = harmonize_company_name(
+                working.get(harmonize_field, ""), yaml_path, config,
+            )
 
-        result.company = company_name
+        parsed_date = parse_document_date(result.fields.get("document_date", ""))
         result.date = parsed_date.isoformat() if parsed_date else None
-        result.doc_type = metadata.document_type
+        if "company_name" in result.fields:
+            if harmonize_field == "company_name":
+                result.company = working["company_name"]
+            else:
+                result.company = result.fields["company_name"]
+        if "document_type" in result.fields:
+            result.doc_type = result.fields["document_type"]
 
-        rename_result = rename_invoice(
-            pdf_path, company_name, parsed_date, metadata.document_type,
-            config, undo_log_path=undo_log_path, batch_id=batch_id, dry_run=dry_run,
+        new_name = render_filename(profile_id, profile, working, config)
+        rename_result = rename_document(
+            pdf_path, new_name, undo_log_path, batch_id, dry_run,
         )
 
         if rename_result is None:
@@ -451,9 +465,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="autorename-pdf",
         description=(
-            "AI-powered PDF auto-renamer. Extracts company name, date, and "
-            "document type from PDFs using an LLM, renames files to "
-            "YYYYMMDD COMPANY DOCTYPE.pdf format.\n\n"
+            "AI-powered PDF auto-renamer. Extracts metadata from PDFs using an LLM "
+            "and renames files using the selected extraction profile "
+            "(default business: YYYYMMDD COMPANY DOCTYPE DESCRIPTION.pdf).\n\n"
             "Supports --output json for structured output suitable for "
             "scripting and GUI integration."
         ),
@@ -539,6 +553,10 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument(
         "--ocr", action="store_true",
         help="Enable PaddleOCR (requires installation via setup.ps1)"
+    )
+    rename_parser.add_argument(
+        "--profile", type=str, default=None,
+        help="Extraction profile id (overrides config for this run)",
     )
 
     # --- undo subcommand ---
@@ -688,6 +706,23 @@ def _validate_config(config: dict | None, config_path: str) -> dict:
             "message": "Company name not configured. AI cannot distinguish incoming vs outgoing invoices.",
         })
 
+    if "filename" in config:
+        issues.append({
+            "field": "filename",
+            "level": "error",
+            "message": "unsupported top-level filename; use profiles.<id>.template",
+        })
+
+    try:
+        resolve_profiles(config)
+        select_profile(config)
+    except ValueError as exc:
+        issues.append({
+            "field": "profile",
+            "level": "error",
+            "message": str(exc),
+        })
+
     valid = not any(i["level"] == "error" for i in issues)
     return {"valid": valid, "issues": issues}
 
@@ -714,6 +749,18 @@ def _handle_config(args: argparse.Namespace, output_format: str) -> None:
                 output_format=output_format,
             )
         redacted = _redact_config(config)
+        try:
+            profile_id, resolved = select_profile(config)
+            resolve_profiles(config)
+        except ValueError as exc:
+            error_exit(
+                "config_error",
+                str(exc),
+                exit_code=ExitCode.CONFIG_ERROR,
+                output_format=output_format,
+            )
+        redacted["profile"] = profile_id
+        redacted["resolved_profile"] = resolved
         if output_format == "json":
             redacted["config_path"] = os.path.abspath(config_path)
             print(json.dumps(redacted, indent=2, ensure_ascii=True))
@@ -855,6 +902,19 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
         config["pdf"]["vision"] = False
     if getattr(args, "ocr", False):
         config["pdf"]["ocr"] = True
+
+    validation = _validate_config(config, config_path)
+    if not validation["valid"]:
+        message = next(
+            (issue["message"] for issue in validation["issues"] if issue["level"] == "error"),
+            "Invalid configuration.",
+        )
+        error_exit(
+            "config_error",
+            message,
+            exit_code=ExitCode.CONFIG_ERROR,
+            output_format=output_format,
+        )
 
     try:
         profile_id, profile = select_profile(config, getattr(args, "profile", None))

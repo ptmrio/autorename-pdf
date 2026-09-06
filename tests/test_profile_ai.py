@@ -1,7 +1,13 @@
 """Tests for generated extraction models."""
+from copy import deepcopy
+from unittest.mock import MagicMock
+
 import pytest
 from pydantic import ValidationError
+from PIL import Image
 
+import _ai_processing as ai
+from _pdf_utils import ExtractionResult
 from _profiles import build_metadata_model, select_profile
 
 
@@ -35,14 +41,6 @@ def test_generated_model_rejects_invalid_output(sample_config, change):
         }[change]
     with pytest.raises(ValidationError):
         model.model_validate(raw)
-
-
-from copy import deepcopy
-from unittest.mock import MagicMock
-
-import _ai_processing as ai
-from PIL import Image
-from _pdf_utils import ExtractionResult
 
 
 def test_prompt_assembly_uses_resolved_schema_order_and_verbatim_extension(sample_config):

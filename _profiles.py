@@ -354,7 +354,7 @@ def _interpolate_profile(profile: dict, config: dict) -> dict:
 def resolve_profiles(config: dict) -> dict[str, dict]:
     """Fresh, fully merged and interpolated profiles."""
     resolved = builtin_profiles(config)
-    declarations = config.get("profiles") or {}
+    declarations = config["profiles"] if "profiles" in config else {}
     if not isinstance(declarations, dict):
         raise ValueError("profiles must be a mapping")
     for profile_id in declarations:

@@ -437,8 +437,6 @@ class TestLiveHarmonization:
 
     def test_harmonizes_acme(self, openai_config, live_harmonized_names, tmp_path):
         """AI extracts 'ACME Corporation GmbH', harmonized to 'ACME'."""
-        from autorename_pdf_runner import process_pdf
-
         src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
         pdf_copy = str(tmp_path / "acme_invoice.pdf")
         shutil.copy2(src, pdf_copy)
@@ -454,8 +452,6 @@ class TestLiveHarmonization:
 
     def test_harmonizes_mustermann(self, openai_config, live_harmonized_names, tmp_path):
         """AI extracts Mustermann variant, harmonized to 'Mustermann'."""
-        from autorename_pdf_runner import process_pdf
-
         src = os.path.join(FIXTURES_DIR, "text_rechnung_mustermann.pdf")
         pdf_copy = str(tmp_path / "mustermann_rechnung.pdf")
         shutil.copy2(src, pdf_copy)
