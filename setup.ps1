@@ -396,7 +396,7 @@ if ($PSBoundParameters.ContainsKey('ContextMenuAction')) {
                 -not (Test-Path -LiteralPath $ExePath -PathType Leaf -ErrorAction Stop)) {
                 throw 'Install requires an absolute path to an existing EXE.'
             }
-            $ExePath = (Resolve-Path -LiteralPath $ExePath).Path
+            $ExePath = (Resolve-Path -LiteralPath $ExePath).ProviderPath
             Add-RegistryEntries -exePath $ExePath
         }
         else {
@@ -526,6 +526,9 @@ if ($choice -eq "I" -or $choice -eq "i") {
     Write-Host "    1. Edit config.yaml with your AI provider API key" -ForegroundColor White
     if ($hasExe -and $results["context_menu"].Status -eq "ok") {
         Write-Host "    2. Right-click any PDF or folder to auto-rename" -ForegroundColor White
+    }
+    elseif ($hasExe) {
+        Write-Host "    2. Launch autorename-pdf-gui.exe, or run autorename-pdf-cli.exe on a PDF" -ForegroundColor White
     }
     else {
         Write-Host "    2. Run: python autorename-pdf.py <file.pdf>" -ForegroundColor White
