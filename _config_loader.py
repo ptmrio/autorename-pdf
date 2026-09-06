@@ -63,6 +63,8 @@ DEFAULTS = {
         "date_format": "%Y%m%d",
     },
     "prompt_extension": "",
+    "profile": "business",
+    "profiles": {},
 }
 
 
@@ -217,6 +219,24 @@ def _migrate_paddleocr_languages(config: dict) -> dict:
     return config
 
 
+def _raise_on_duplicate_keys(node) -> None:
+    """Reject duplicate mapping keys at every depth. No loader subclass."""
+    if isinstance(node, yaml.MappingNode):
+        seen: list = []
+        for key_node, value_node in node.value:
+            key = key_node.value
+            if key in seen:
+                mark = key_node.start_mark
+                raise yaml.YAMLError(
+                    f"Duplicate key {key!r} in {mark.name}, line {mark.line + 1}"
+                )
+            seen.append(key)
+            _raise_on_duplicate_keys(value_node)
+    elif isinstance(node, yaml.SequenceNode):
+        for child in node.value:
+            _raise_on_duplicate_keys(child)
+
+
 def load_yaml_config(config_path: str) -> dict[str, Any] | None:
     """Load and validate configuration from a YAML file.
 
@@ -233,40 +253,48 @@ def load_yaml_config(config_path: str) -> dict[str, Any] | None:
 
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
-            raw_config = yaml.safe_load(file)
-            if not raw_config:
-                logging.error(f'Config file {config_path} is empty')
-                return None
+            text = file.read()
+        loader = yaml.SafeLoader(text)
+        try:
+            root = loader.get_single_node()
+            if root is not None:
+                _raise_on_duplicate_keys(root)
+            raw_config = loader.construct_document(root) if root is not None else None
+        finally:
+            loader.dispose()
+        if not raw_config:
+            logging.error(f'Config file {config_path} is empty')
+            return None
 
-            # Detect old v1 schema
-            if _detect_old_schema(raw_config):
-                _print_migration_instructions()
-                sys.exit(1)
+        # Detect old v1 schema
+        if _detect_old_schema(raw_config):
+            _print_migration_instructions()
+            sys.exit(1)
 
-            # Migrate old extraction keys before merging
-            _migrate_extraction_config(raw_config)
-            _migrate_paddleocr_config(raw_config)
-            _migrate_paddleocr_languages(raw_config)
+        # Migrate old extraction keys before merging
+        _migrate_extraction_config(raw_config)
+        _migrate_paddleocr_config(raw_config)
+        _migrate_paddleocr_languages(raw_config)
 
-            # Merge with defaults
-            config = _deep_merge(DEFAULTS, raw_config)
+        # Merge with defaults
+        config = _deep_merge(DEFAULTS, raw_config)
 
-            # Resolve ${VAR} environment variable references
-            config = _interpolate_env_vars(config)
+        # Resolve ${VAR} environment variable references
+        config = _interpolate_env_vars(config)
 
-            # Auto-detect PaddleOCR venv path if not set
-            if not config["paddleocr"]["venv_path"]:
-                if sys.platform == "win32":
-                    base = os.environ.get("LOCALAPPDATA", "")
-                else:
-                    base = os.path.join(os.path.expanduser("~"), ".local", "share")
-                if base:
-                    config["paddleocr"]["venv_path"] = os.path.join(
-                        base, "autorename-pdf", "paddleocr-venv"
-                    )
+        # Auto-detect PaddleOCR venv path if not set
+        if not config["paddleocr"]["venv_path"]:
+            if sys.platform == "win32":
+                base = os.environ.get("LOCALAPPDATA", "")
+            else:
+                base = os.path.join(os.path.expanduser("~"), ".local", "share")
+            if base:
+                config["paddleocr"]["venv_path"] = os.path.join(
+                    base, "autorename-pdf", "paddleocr-venv"
+                )
 
-            logging.info(f'Successfully loaded config from {config_path}')
-            return config
+        logging.info(f'Successfully loaded config from {config_path}')
+        return config
 
     except yaml.YAMLError as e:
         logging.error(f'Error parsing YAML config file {config_path}: {e}')
