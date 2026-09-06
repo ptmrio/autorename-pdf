@@ -32,6 +32,8 @@
 4. **Launch** `autorename-pdf-gui.exe` — or right-click any PDF in Explorer
 
 > `setup.ps1` creates `config.yaml` from the template, adds context menu entries, and optionally installs PaddleOCR for offline OCR of scanned documents.
+>
+> Run `setup.ps1` from normal PowerShell, without "Run as Administrator". Only choosing to install or remove Explorer context menus requests UAC. Config creation and PaddleOCR installation/removal stay under your original Windows user, including when another administrator approves UAC. Already-elevated interactive setup asks you to rerun normally.
 
 ## Common Questions
 

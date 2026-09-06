@@ -1,17 +1,17 @@
-﻿# AutoRenamePDF Installation/Uninstallation Script
+# AutoRenamePDF Installation/Uninstallation Script
 #
-# How to run:
-#   Right-click this file > "Run with PowerShell"
-#   - OR -
-#   Open PowerShell and run:  .\setup.ps1
-#   The script will auto-elevate to Administrator via UAC prompt.
+# Run from normal PowerShell: .\setup.ps1
+# Only context-menu installation/removal requests UAC.
+# OCR installation and removal use the original user's profile.
+# This entire file, including comments, must remain ASCII-only for PowerShell 5.1.
 #
 # On Windows 11, context menu entries appear under "Show more options" (Shift+F10).
-#
-# NOTE: This file must remain ASCII-only inside strings and code.
-# PowerShell 5.1 reads BOM-less UTF-8 as Windows-1252, which corrupts
-# non-ASCII characters (e.g. em dashes) inside string literals.
-# Decorative Unicode in comments (section separators) is safe.
+
+param(
+    [ValidateSet("Install", "Uninstall")]
+    [string]$ContextMenuAction,
+    [string]$ExePath
+)
 
 # Pinned package versions -- update these when upgrading dependencies.
 # Pinning protects against supply-chain attacks on PyPI (e.g. compromised uploads).
@@ -21,43 +21,7 @@ $script:VirtualenvVersion   = "21.7.8"
 $script:PythonVersion       = "3.13.15"
 $script:PythonZipUrl        = "https://www.python.org/ftp/python/$script:PythonVersion/python-$script:PythonVersion-embed-amd64.zip"
 
-# Auto-elevate to administrator if not already running as admin
-if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Host "AutoRenamePDF Setup requires Administrator privileges." -ForegroundColor Yellow
-    Write-Host "Requesting elevation via UAC..." -ForegroundColor Gray
-    try {
-        # Note: -WorkingDirectory is intentionally omitted -- it is ignored with -Verb RunAs
-        # (ShellExecuteEx limitation). $PSScriptRoot works because -File uses an absolute path.
-        Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
-        Write-Host "An elevated window has been opened. You can close this window." -ForegroundColor Gray
-        Start-Sleep -Seconds 2
-    }
-    catch {
-        Write-Host "UAC prompt was declined or elevation failed." -ForegroundColor Red
-        Write-Host "Please right-click PowerShell and select 'Run as Administrator', then run this script again." -ForegroundColor Yellow
-        Read-Host "Press Enter to close"
-    }
-    exit
-}
-
-# Ensure working directory is the script's location (elevated processes default to System32)
-Set-Location $PSScriptRoot
-
-# Set window title for the elevated session
-$Host.UI.RawUI.WindowTitle = "AutoRenamePDF Setup"
-
-# Enforce TLS 1.2+ for web downloads (PS 5.1 defaults to TLS 1.0)
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-# Banner
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  AutoRenamePDF Setup" -ForegroundColor Cyan
-Write-Host "  Running as Administrator" -ForegroundColor Gray
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# ─── Helper Functions ──────────────────────────────────────────────────────────
+# --- Helper Functions ---
 
 function Find-AutoRenamePDF {
     <# Find the CLI executable. Searches multiple locations for portable/standalone layouts. #>
@@ -76,6 +40,8 @@ function Find-AutoRenamePDF {
 
 function Add-RegistryEntries {
     param($exePath)
+
+    $ErrorActionPreference = 'Stop'
 
     # For PDF files
     New-Item -Path "HKLM:\SOFTWARE\Classes\SystemFileAssociations\.pdf\shell\AutoRenamePDF" -Force | Out-Null
@@ -101,9 +67,45 @@ function Add-RegistryEntries {
 
 
 function Remove-RegistryEntries {
-    Remove-Item -Path "HKLM:\SOFTWARE\Classes\SystemFileAssociations\.pdf\shell\AutoRenamePDF" -Recurse -ErrorAction SilentlyContinue
-    Remove-Item -Path "HKLM:\SOFTWARE\Classes\Directory\shell\AutoRenamePDFs" -Recurse -ErrorAction SilentlyContinue
-    Remove-Item -Path "HKLM:\SOFTWARE\Classes\Directory\Background\shell\AutoRenamePDFs" -Recurse -ErrorAction SilentlyContinue
+    $paths = @(
+        'HKLM:\SOFTWARE\Classes\SystemFileAssociations\.pdf\shell\AutoRenamePDF',
+        'HKLM:\SOFTWARE\Classes\Directory\shell\AutoRenamePDFs',
+        'HKLM:\SOFTWARE\Classes\Directory\Background\shell\AutoRenamePDFs'
+    )
+    foreach ($path in $paths) {
+        try {
+            Remove-Item -LiteralPath $path -Recurse -ErrorAction Stop
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+        }
+    }
+}
+
+
+function Invoke-ContextMenuAction {
+    param(
+        [ValidateSet('Install', 'Uninstall')]
+        [string]$Action,
+        [string]$ExePath
+    )
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ContextMenuAction {1}' -f $PSCommandPath, $Action
+    if ($Action -eq 'Install') {
+        $arguments += ' -ExePath "{0}"' -f $ExePath
+    }
+    try {
+        $child = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden `
+            -ArgumentList $arguments -Wait -PassThru -ErrorAction Stop
+        if ($child.ExitCode -ne 0) {
+            Write-Host "  [FAIL] Context-menu $Action failed (exit $($child.ExitCode)). You can continue to OCR." -ForegroundColor Red
+            return $false
+        }
+        return $true
+    }
+    catch {
+        Write-Host "  [FAIL] Context-menu $Action was cancelled or could not start: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host '  You can continue to OCR.' -ForegroundColor Gray
+        return $false
+    }
 }
 
 
@@ -310,16 +312,6 @@ function Install-PaddleOCR {
         Write-Host "  Models will be downloaded on first use instead." -ForegroundColor Gray
     }
 
-    # Fix permissions: setup runs as admin, so downloaded model files inherit
-    # admin-only ACLs. Grant read+execute to the current user (non-elevated
-    # identity) so the bridge subprocess can load them at runtime.
-    # Uses SID S-1-5-32-545 (built-in Users group) which is locale-independent.
-    $modelDir = Join-Path $env:USERPROFILE ".paddlex\official_models"
-    if (Test-Path $modelDir) {
-        Write-Host "  Fixing model file permissions..." -ForegroundColor Gray
-        icacls $modelDir /grant "*S-1-5-32-545:(OI)(CI)RX" /T /Q 2>$null | Out-Null
-    }
-
     # Report result
     Write-Host ""
     $mode = if ($gpuInstalled) { "GPU" } else { "CPU" }
@@ -339,7 +331,10 @@ function Show-Summary {
 
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
-    if ($Action -eq "install") {
+    if ($Results['context_menu'] -and $Results['context_menu'].Status -eq 'failed') {
+        Write-Host '  Setup finished with a context-menu failure.' -ForegroundColor Yellow
+    }
+    elseif ($Action -eq "install") {
         Write-Host "  Installation complete!" -ForegroundColor Green
     }
     else {
@@ -359,6 +354,9 @@ function Show-Summary {
             elseif ($entry.Status -eq "skip") {
                 Write-Host "    [--] $($entry.Label)" -ForegroundColor Gray
             }
+            elseif ($entry.Status -eq 'failed') {
+                Write-Host "    [FAIL] $($entry.Label)" -ForegroundColor Red
+            }
         }
     }
     else {
@@ -372,12 +370,69 @@ function Show-Summary {
             elseif ($entry.Status -eq "skip") {
                 Write-Host "    [--] $($entry.Label)" -ForegroundColor Gray
             }
+            elseif ($entry.Status -eq 'failed') {
+                Write-Host "    [FAIL] $($entry.Label)" -ForegroundColor Red
+            }
         }
     }
 }
 
 
-# ─── Main Routine ─────────────────────────────────────────────────────────────
+# --- Helper dispatch (internal; never reaches interactive setup) ---
+
+$isElevated = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+if ($PSBoundParameters.ContainsKey('ContextMenuAction')) {
+    try {
+        if (-not $isElevated) {
+            throw 'Context-menu mode requires an elevated PowerShell process.'
+        }
+        if ($ContextMenuAction -eq 'Install') {
+            # Require a drive-absolute or UNC path, not C:relative.exe or \relative.exe.
+            if ([string]::IsNullOrWhiteSpace($ExePath) -or
+                $ExePath -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+\\)' -or
+                [IO.Path]::GetExtension($ExePath) -ine '.exe' -or
+                -not (Test-Path -LiteralPath $ExePath -PathType Leaf -ErrorAction Stop)) {
+                throw 'Install requires an absolute path to an existing EXE.'
+            }
+            $ExePath = (Resolve-Path -LiteralPath $ExePath).Path
+            Add-RegistryEntries -exePath $ExePath
+        }
+        else {
+            Remove-RegistryEntries
+        }
+        exit 0
+    }
+    catch {
+        Write-Error -Message "Context-menu action failed: $($_.Exception.Message)" -ErrorAction Continue
+        exit 1
+    }
+}
+if ($PSBoundParameters.ContainsKey('ExePath')) {
+    Write-Host '-ExePath is only valid with -ContextMenuAction.' -ForegroundColor Red
+    Read-Host "Press Enter to close"
+    exit 1
+}
+if ($isElevated) {
+    Write-Host 'Run setup.ps1 from normal PowerShell so OCR uses your user profile.' -ForegroundColor Yellow
+    Read-Host "Press Enter to close"
+    exit 1
+}
+
+# Interactive setup starts here, always with the original unelevated token.
+Set-Location -LiteralPath $PSScriptRoot
+$Host.UI.RawUI.WindowTitle = 'AutoRenamePDF Setup'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Banner
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  AutoRenamePDF Setup" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# --- Main Routine ---
 
 $exePath = Find-AutoRenamePDF
 $hasExe = $null -ne $exePath
@@ -391,7 +446,7 @@ if ($choice -eq "I" -or $choice -eq "i") {
 
     $results = @{}
 
-    # ── 1. Config file ────────────────────────────────────────────────────────
+    # --- 1. Config file ---
     $configPath = Join-Path $PSScriptRoot "config.yaml"
     $configExample = Join-Path $PSScriptRoot "config.yaml.example"
     if (-not (Test-Path $configPath) -and (Test-Path $configExample)) {
@@ -403,7 +458,7 @@ if ($choice -eq "I" -or $choice -eq "i") {
     }
     Write-Host "  $($results['config'].Label)" -ForegroundColor Green
 
-    # ── 2. Context menu (optional) ────────────────────────────────────────────
+    # --- 2. Context menu (optional) ---
     Write-Host ""
     if ($hasExe) {
         Write-Host "--- Context Menu ---" -ForegroundColor Cyan
@@ -411,9 +466,13 @@ if ($choice -eq "I" -or $choice -eq "i") {
         Write-Host "  On Windows 11, these appear under 'Show more options' (Shift+F10)." -ForegroundColor Gray
         $menuChoice = Read-Host "  Install context menu entries? [y/N]"
         if ($menuChoice -eq "y" -or $menuChoice -eq "Y") {
-            Add-RegistryEntries -exePath $exePath
-            $results["context_menu"] = @{ Status = "ok"; Label = "Context menu entries registered" }
-            Write-Host "  [OK] Context menu entries registered." -ForegroundColor Green
+            if (Invoke-ContextMenuAction -Action Install -ExePath $exePath) {
+                $results['context_menu'] = @{ Status = 'ok'; Label = 'Context menu entries registered' }
+                Write-Host '  [OK] Context menu entries registered.' -ForegroundColor Green
+            }
+            else {
+                $results['context_menu'] = @{ Status = 'failed'; Label = 'Context menu installation failed or cancelled' }
+            }
         }
         else {
             $results["context_menu"] = @{ Status = "skip"; Label = "Context menu (skipped)" }
@@ -426,7 +485,7 @@ if ($choice -eq "I" -or $choice -eq "i") {
         Write-Host "       You can run the tool via: python autorename-pdf.py file.pdf" -ForegroundColor Gray
     }
 
-    # ── 3. PaddleOCR (optional) ───────────────────────────────────────────────
+    # --- 3. PaddleOCR (optional) ---
     Write-Host ""
     Write-Host "--- PaddleOCR (Offline OCR) ---" -ForegroundColor Cyan
     Write-Host "  Enables text recognition for scanned/image-based PDFs." -ForegroundColor Gray
@@ -434,7 +493,7 @@ if ($choice -eq "I" -or $choice -eq "i") {
     $ocrChoice = Read-Host "  Install PaddleOCR? [y/N]"
     if ($ocrChoice -eq "y" -or $ocrChoice -eq "Y") {
 
-        # ── 3a. GPU option (only if PaddleOCR chosen) ─────────────────────────
+        # --- 3a. GPU option (only if PaddleOCR chosen) ---
         $useGpu = $false
         Write-Host ""
         Write-Host "  --- GPU Acceleration ---" -ForegroundColor Cyan
@@ -459,7 +518,7 @@ if ($choice -eq "I" -or $choice -eq "i") {
         Write-Host "  [--] Skipped. You can install it later by running this script again." -ForegroundColor Gray
     }
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    # --- Summary ---
     Show-Summary -Action "install" -Results $results
 
     Write-Host ""
@@ -479,19 +538,23 @@ elseif ($choice -eq "U" -or $choice -eq "u") {
 
     $results = @{}
 
-    # ── 1. Context menu ──────────────────────────────────────────────────────
+    # --- 1. Context menu ---
     Write-Host "--- Context Menu ---" -ForegroundColor Cyan
     $menuChoice = Read-Host "  Remove context menu entries? [y/N]"
     if ($menuChoice -eq "y" -or $menuChoice -eq "Y") {
-        Remove-RegistryEntries
-        $results["context_menu"] = @{ Status = "ok"; Label = "Context menu entries removed" }
-        Write-Host "  [OK] Context menu entries removed." -ForegroundColor Green
+        if (Invoke-ContextMenuAction -Action Uninstall) {
+            $results['context_menu'] = @{ Status = 'ok'; Label = 'Context menu entries removed' }
+            Write-Host '  [OK] Context menu entries removed.' -ForegroundColor Green
+        }
+        else {
+            $results['context_menu'] = @{ Status = 'failed'; Label = 'Context menu removal failed or cancelled' }
+        }
     }
     else {
         $results["context_menu"] = @{ Status = "skip"; Label = "Context menu (kept)" }
     }
 
-    # ── 2. PaddleOCR ─────────────────────────────────────────────────────────
+    # --- 2. PaddleOCR ---
     $ocrDir = Join-Path $env:LOCALAPPDATA "autorename-pdf"
     if (Test-Path $ocrDir) {
         Write-Host ""
