@@ -32,8 +32,8 @@ pdf:
   ocr: false                      # false / true / "auto" — PaddleOCR for scanned PDFs
   vision: false                   # false / true / "auto" — send page images to LLM
   text_quality_threshold: 0.3     # Triggers OCR/vision when set to "auto"
-  outgoing_invoice: "AR"          # Abbreviation for outgoing invoices (Accounts Receivable)
-  incoming_invoice: "ER"          # Abbreviation for incoming invoices (Expense Reports)
+  outgoing_invoice: "AR"          # Outgoing invoice / Ausgangsrechnung
+  incoming_invoice: "ER"          # Incoming invoice / Eingangsrechnung
 
 # PaddleOCR Configuration (optional, install via setup.ps1)
 paddleocr:
@@ -59,7 +59,25 @@ output:
   language: "English"             # Language for document type descriptions
   date_format: "%Y%m%d"          # strftime format for filenames (YYYYMMDD)
 
-# Optional AI Prompt Extension
-# Add custom instructions to fine-tune extraction, e.g.:
-# prompt_extension: 'If it is an incoming or outgoing invoice, add the total amount like "ER 1234,56".'
+# Extraction profile; rename --profile overrides this for one run.
+profile: business
+# Overlay built-ins or declare custom profiles here; see README examples.
+# Three-component opt-out (both settings required):
+#   profiles:
+#     business:
+#       template: "{document_date} {company_name} {document_type}"
+#       truncate_field: company_name
+# Optional invoice id, keeping the printed amount in description:
+#   profiles:
+#     business:
+#       fields:
+#         invoice_id:
+#           description: "Copy the printed invoice number exactly, without an Invoice or Rechnung label. Empty if absent or the document is not an invoice."
+#       template: "{document_date} {company_name} {document_type} {description} {invoice_id}"
+#       truncate_field: description
+profiles: {}
+
+# Optional global instructions, appended verbatim to the profile prompt.
+# Business description already contains a printed invoice total.
+# Remove older amount-appending document_type instructions to avoid duplicates.
 prompt_extension: ""

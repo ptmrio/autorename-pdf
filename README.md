@@ -1,7 +1,7 @@
 <div align="center">
   <h1>AutoRename-PDF</h1>
   <p><b>Automatically rename PDF files using AI and OCR.</b><br>
-  Extracts company names, dates, and document types from any PDF — renames to <code>YYYYMMDD COMPANY DOCTYPE.pdf</code>.</p>
+  Extracts metadata from any PDF — default names look like <code>20260906 ACME ER 12,13.pdf</code>.</p>
   <p>
     <a href="https://github.com/ptmrio/autorename-pdf/releases"><img src="https://img.shields.io/github/v/release/ptmrio/autorename-pdf" alt="GitHub Release"></a>
     <a href="https://github.com/ptmrio/autorename-pdf/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ptmrio/autorename-pdf" alt="MIT License"></a>
@@ -57,6 +57,7 @@ The CLI works cross-platform via Python. The GUI and context menu are Windows-on
   - [Recommended Setups](#recommended-setups)
   - [Provider Models](#provider-models)
   - [Extraction Settings](#extraction-settings)
+  - [Dynamic extraction profiles](#dynamic-extraction-profiles)
 - [Usage](#usage)
   - [GUI](#gui)
   - [Context Menu](#context-menu)
@@ -179,6 +180,104 @@ See `config.yaml.example` for full documentation of all settings.
 
 All enabled sources are combined before sending to the AI — maximizing extraction accuracy.
 
+### Dynamic extraction profiles
+
+The default business filename now includes a fourth component:
+`20260906 ACME ER 12,13.pdf`. ER (Eingangsrechnung) and AR (Ausgangsrechnung)
+already identify invoice types. The description copies the printed final total;
+if no total is printed, the filename is `20260906 ACME ER.pdf`. Currency is kept
+only when printed with the amount. Non-invoices copy an explicit subject/title
+in its original language instead of generating a summary.
+
+Existing v2 configs still load, but generated names and prompts intentionally
+change. Remove old prompt extensions that append the amount to document_type
+when adopting this default, or an amount may appear twice (`ER 12,13 12,13`).
+Your config and prompt_extension are never silently rewritten or filtered.
+
+Set `profile: business` or `profile: academic` in config. A run can override
+that selection with `rename <path> --profile academic` without saving config.
+Academic filenames use date, first author's surname, venue, and full printed
+title with spaces; absent venue disappears. A printed year alone normalizes
+to January 1 of that year, not evidence of the publication day.
+
+All extraction fields are required strings; missing values are empty strings.
+JSON adds `profile` and raw `fields` to each file result. These values survive
+filename sanitization, harmonization, and truncation. Templates contain field
+names in braces, omit `.pdf`, and cannot contain paths. Escape literal braces
+as `{{` and `}}`. `truncate_field` names the non-date template field shortened
+first; `harmonize_field` optionally selects one company/issuer field for the
+existing company aliases. Academic does not use company aliases.
+
+Merge a chosen overlay into your existing single `profiles` mapping; duplicate
+YAML keys are errors. Same-name overlays replace scalar settings, keep the
+order of existing fields, append new fields, and use `field: null` for
+deletion. Date cannot be deleted; references must be repaired. Custom
+`extends` can name a built-in or an earlier custom profile and inherits the
+parent's user overlay. There is no separate profile file directory.
+`config validate` checks all profiles, `config show` includes resolved
+selection, and `output.date_format` applies across profiles.
+
+Restore the three-component shape with **both** settings (this does not restore
+generated non-invoice summaries):
+
+```yaml
+profiles:
+  business:
+    template: "{document_date} {company_name} {document_type}"
+    truncate_field: company_name
+```
+
+Keep the printed amount and add an invoice number:
+
+```yaml
+profiles:
+  business:
+    fields:
+      invoice_id:
+        description: "Copy the printed invoice number exactly, without an Invoice or Rechnung label. Empty if absent or the document is not an invoice."
+    template: "{document_date} {company_name} {document_type} {description} {invoice_id}"
+    truncate_field: description
+```
+
+The latter retains the inherited amount in description and produces
+`20260906 ACME ER 12,13 12345.pdf`.
+
+Inherit business fields into a receipts profile, or declare a standalone
+two-field profile:
+
+```yaml
+profile: receipts
+profiles:
+  business:
+    fields:
+      city:
+        description: "City in the counterparty address, as printed. Empty if absent."
+  receipts:
+    extends: business
+    intro: "You are naming a purchase receipt."
+    fields:
+      document_type: null
+      description: null
+      short_title:
+        description: "Copy a purchase title explicitly printed on the receipt. Empty if absent."
+    template: "{document_date}_{company_name}_{city}_{short_title}"
+    truncate_field: short_title
+    harmonize_field: company_name
+```
+
+```yaml
+profile: notes
+profiles:
+  notes:
+    fields:
+      document_date:
+        description: "Copy the printed date as dd.mm.YYYY. Empty if absent."
+      title:
+        description: "Copy the explicit title verbatim. Empty if absent."
+    template: "{document_date} {title}"
+    truncate_field: title
+```
+
 ## Usage
 
 ### GUI
@@ -220,6 +319,9 @@ autorename-pdf-cli.exe undo
 # Override AI provider/model for one run
 autorename-pdf-cli.exe --provider anthropic --model claude-sonnet-4-6 "file.pdf"
 
+# Use the academic profile for one run without saving config
+autorename-pdf-cli.exe rename --profile academic "paper.pdf"
+
 # Enable vision and/or OCR
 autorename-pdf-cli.exe --vision --ocr "scanned_document.pdf"
 
@@ -250,6 +352,7 @@ autorename-pdf-cli.exe rename --output json "C:\path\to\folder"
 | `--vision` | Enable vision (send page images to LLM) |
 | `--ocr` | Enable PaddleOCR |
 | `--text-only` | Disable OCR and vision (text extraction only) |
+| `--profile` | Extraction profile id (overrides config for this run) |
 | `--output`, `-o` | Output format: `text` or `json` (default: auto-detect) |
 | `--quiet`, `-q` | Suppress non-essential output |
 | `--verbose`, `-v` | Show detailed processing info |
