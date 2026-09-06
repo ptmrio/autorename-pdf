@@ -120,6 +120,12 @@ def test_deleting_company_with_repaired_references_does_not_recreate_it(sample_c
     pytest.param({"business": {"template": "folder/{description}"}}, id="literal-slash"),
     pytest.param({"business": {"template": "folder\\{description}"}}, id="literal-backslash"),
     pytest.param({"business": {"template": "{description} {company}"}}, id="wrong-namespace"),
+    pytest.param({"business": {"truncate_field": []}}, id="truncate-list"),
+    pytest.param({"business": {"harmonize_field": {}}}, id="harmonize-dict"),
+    pytest.param({"x": {"fields": {"document_date": None, "title": {"description": "Title"}}, "template": "{title}", "truncate_field": "title"}}, id="standalone-null-date"),
+    pytest.param({"x": {"fields": {"document_date": {"description": "Date"}, "title": {"description": "Title"}, "absent": None}, "template": "{title}", "truncate_field": "title"}}, id="standalone-delete-missing"),
+    pytest.param({"notes": {"extends": "", "fields": {"document_date": {"description": "Date"}, "title": {"description": "Title"}}, "template": "{title}", "truncate_field": "title"}}, id="empty-parent"),
+    pytest.param({"notes": {"extends": "  ", "fields": {"document_date": {"description": "Date"}, "title": {"description": "Title"}}, "template": "{title}", "truncate_field": "title"}}, id="blank-parent"),
 ], ids=None)
 def test_invalid_profile_definitions(sample_config, definitions):
     sample_config["profiles"] = definitions

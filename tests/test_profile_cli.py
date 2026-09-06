@@ -30,6 +30,8 @@ def call_cli(argv, capsys):
     pytest.param("profiles: {business: null}\n", id="null-definition"),
     pytest.param("profile: business\nprofile: academic\n", id="duplicate-yaml"),
     pytest.param("filename: '{document_date}'\n", id="unsupported-top-level-filename"),
+    pytest.param("profiles: {business: {truncate_field: []}}\n", id="truncate-list"),
+    pytest.param("profiles: {notes: {extends: '', fields: {document_date: {description: Date}, title: {description: Title}}, template: '{title}', truncate_field: title}}\n", id="empty-parent"),
 ])
 @pytest.mark.parametrize("command", ["rename", "validate"])
 def test_invalid_config_exits_3_before_content_provider_or_mutation(
@@ -117,6 +119,23 @@ def test_unknown_cli_profile_is_config_error(sample_config, tmp_path, capsys, mo
     code, payload = call_cli(["rename", "absent.pdf", "--profile", "Academic", "--config", str(path)], capsys)
     assert code == 3
     assert payload["error_type"] == "config_error"
+    process.assert_not_called()
+
+
+def test_cli_profile_override_ignores_stale_configured_selection(
+    sample_config, tmp_path, capsys, monkeypatch,
+):
+    sample_config["profile"] = "missing"
+    path = tmp_path / "test-config.yaml"
+    path.write_text(yaml.safe_dump(sample_config), encoding="utf-8")
+    process = Mock(side_effect=AssertionError("must not process"))
+    monkeypatch.setattr(cli, "process_pdf", process)
+    code, payload = call_cli(
+        ["rename", "absent.pdf", "--profile", "academic", "--dry-run", "--config", str(path)],
+        capsys,
+    )
+    assert code == 4
+    assert payload["error_type"] == "no_files"
     process.assert_not_called()
 
 

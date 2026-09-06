@@ -241,8 +241,9 @@ def _validate_overlay_shape(profile_id: str, overlay, *, allow_extends: bool) ->
         if not allow_extends:
             raise ValueError(f"built-in profile {profile_id!r} cannot set extends")
         parent = overlay["extends"]
-        if not isinstance(parent, str):
+        if not isinstance(parent, str) or not parent or parent != parent.strip():
             raise ValueError(f"profile {profile_id!r} extends must be a single id")
+        _check_selected_id(parent)
     if "intro" in overlay and overlay["intro"] is not None and not isinstance(overlay["intro"], str):
         raise ValueError(f"profile {profile_id!r} intro must be a string")
     if overlay.get("intro") is None and "intro" in overlay:
@@ -304,7 +305,18 @@ def _standalone_defaults(definition: dict) -> dict:
     result.pop("extends", None)
     result.setdefault("intro", "")
     result.setdefault("harmonize_field", None)
-    result.setdefault("fields", {})
+    fields = result.get("fields")
+    if fields is None:
+        result["fields"] = {}
+    elif not isinstance(fields, dict):
+        raise ValueError("fields must be a mapping")
+    else:
+        cleaned = {}
+        for field_id, spec in fields.items():
+            if spec is None:
+                raise ValueError(f"cannot delete missing field {field_id!r}")
+            cleaned[field_id] = deepcopy(spec)
+        result["fields"] = cleaned
     return result
 
 
@@ -320,6 +332,12 @@ def _validate_resolved(profile_id: str, profile: dict) -> None:
     fields = profile.get("fields")
     if not isinstance(fields, dict) or "document_date" not in fields:
         raise ValueError(f"profile {profile_id!r} must include document_date")
+    date_spec = fields.get("document_date")
+    if not isinstance(date_spec, dict) or not isinstance(date_spec.get("description"), str):
+        raise ValueError(f"profile {profile_id!r} document_date is invalid")
+    for field_id, spec in fields.items():
+        if spec is None or not isinstance(spec, dict):
+            raise ValueError(f"field {field_id!r} must be a mapping")
     template = profile.get("template")
     if not isinstance(template, str) or not template:
         raise ValueError(f"profile {profile_id!r} is missing template")
@@ -329,14 +347,13 @@ def _validate_resolved(profile_id: str, profile: dict) -> None:
         if name not in field_ids:
             raise ValueError(f"template placeholder {name!r} is not a field")
     truncate = profile.get("truncate_field")
-    if truncate == "document_date" or truncate not in field_ids or f"{{{truncate}}}" not in template:
+    if not isinstance(truncate, str) or truncate == "document_date" or truncate not in field_ids or f"{{{truncate}}}" not in template:
         raise ValueError(f"invalid truncate_field {truncate!r}")
-    # require the placeholder actually used, not merely a substring
     if truncate not in names:
         raise ValueError(f"truncate_field {truncate!r} is not in the template")
     harmonize = profile.get("harmonize_field", None)
     if harmonize is not None:
-        if harmonize == "document_date" or harmonize not in field_ids:
+        if not isinstance(harmonize, str) or harmonize == "document_date" or harmonize not in field_ids:
             raise ValueError(f"invalid harmonize_field {harmonize!r}")
     intro = profile.get("intro", "")
     if not isinstance(intro, str):
@@ -370,8 +387,9 @@ def resolve_profiles(config: dict) -> dict[str, dict]:
         if profile_id in _BUILTIN_IDS:
             continue
         _validate_overlay_shape(profile_id, definition, allow_extends=True)
-        parent_id = definition.get("extends") if isinstance(definition, dict) else None
-        if parent_id:
+        has_extends = isinstance(definition, dict) and "extends" in definition
+        parent_id = definition.get("extends") if has_extends else None
+        if has_extends:
             if parent_id not in resolved:
                 raise ValueError(f"unknown parent {parent_id!r} for profile {profile_id!r}")
             resolved[profile_id] = _apply_overlay(resolved[parent_id], definition)

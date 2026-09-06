@@ -59,6 +59,8 @@ def test_spec_filename_table(sample_config, selected, values, overlay, date_form
     pytest.param("{first_author_surname} _ {journal_name} {title}", {"first_author_surname": "Smith", "title": "A Study"}, "Smith_A Study.pdf", id="underscore-precedence"),
     pytest.param("{first_author_surname}--{journal_name}--{title}", {"first_author_surname": "Smith", "title": "A Study"}, "Smith-A Study.pdf", id="hyphen-without-spaces"),
     pytest.param("_ -{title}- _", {"title": ""}, "Unknown.pdf", id="stranded-end-separators"),
+    pytest.param("{first_author_surname}_\u00a0{journal_name}-{title}", {"first_author_surname": "Smith", "title": "Study"}, "Smith - Study.pdf", id="nbsp-separator-run"),
+    pytest.param("_\u00a0{title}_\u00a0", {"title": ""}, "Unknown.pdf", id="nbsp-stranded-ends"),
 ])
 def test_literal_and_value_safety(sample_config, template, values, expected):
     assert rendered(sample_config, "academic", values, {"template": template}) == expected

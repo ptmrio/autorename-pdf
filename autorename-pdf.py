@@ -660,7 +660,7 @@ def _redact_config(config: dict) -> dict:
     return redacted
 
 
-def _validate_config(config: dict | None, config_path: str) -> dict:
+def _validate_config(config: dict | None, config_path: str, profile_id: str | None = None) -> dict:
     """Validate config and return a dict with issues."""
     issues = []
 
@@ -715,7 +715,7 @@ def _validate_config(config: dict | None, config_path: str) -> dict:
 
     try:
         resolve_profiles(config)
-        select_profile(config)
+        select_profile(config, profile_id)
     except ValueError as exc:
         issues.append({
             "field": "profile",
@@ -903,7 +903,7 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
     if getattr(args, "ocr", False):
         config["pdf"]["ocr"] = True
 
-    validation = _validate_config(config, config_path)
+    validation = _validate_config(config, config_path, getattr(args, "profile", None))
     if not validation["valid"]:
         message = next(
             (issue["message"] for issue in validation["issues"] if issue["level"] == "error"),

@@ -78,11 +78,10 @@ def _rename_with_retry(src: str, dst: str, retries: int = 3, delay: float = 1.0)
 
 
 _MAX_BASE = 244
-_SEP_CHARS = frozenset(" \t\n\r-_")
 
 
 def _is_separator_run(text: str) -> bool:
-    return bool(text) and all(ch in _SEP_CHARS for ch in text)
+    return bool(text) and all(ch.isspace() or ch in "-_" for ch in text)
 
 
 def _collapse_separator_run(text: str) -> str:
