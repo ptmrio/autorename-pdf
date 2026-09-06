@@ -13,7 +13,7 @@ import time
 import dateparser
 from rapidfuzz.distance import JaroWinkler
 
-from _utils import UNKNOWN_VALUE, DEFAULT_DATE, is_valid_filename, sanitize_filename, normalize_unicode
+from _utils import UNKNOWN_VALUE, DEFAULT_DATE, sanitize_filename, normalize_unicode
 from _config_loader import load_company_names
 from _profiles import iter_template_tokens
 
@@ -178,61 +178,29 @@ def render_filename(profile_id: str, profile: dict, fields: dict[str, str], conf
     return normalize_unicode(f"{base}.pdf")
 
 
-def rename_invoice(
+def rename_document(
     pdf_path: str,
-    company_name: str,
-    document_date: datetime.date | None,
-    document_type: str,
-    config: dict,
+    new_name: str,
     undo_log_path: str = None,
     batch_id: str = None,
     dry_run: bool = False,
 ) -> str | None:
-    """Rename the document based on extracted information.
-
-    Returns the new path on success, None on skip/error.
-    """
-    date_format = config.get("output", {}).get("date_format", "%Y%m%d")
+    """Rename a PDF to an already-rendered .pdf name. Collision, dry-run, undo."""
     pdf_path = normalize_unicode(pdf_path)
-    company_name = sanitize_filename(normalize_unicode(company_name))
-    document_type = sanitize_filename(normalize_unicode(document_type))
-
-    # Validate components (fall back to Unknown if sanitization left nothing usable)
-    if not is_valid_filename(company_name):
-        company_name = UNKNOWN_VALUE
-    if not is_valid_filename(document_type):
-        document_type = UNKNOWN_VALUE
-
-    if document_date:
-        base_name = f'{document_date.strftime(date_format)} {company_name} {document_type}'
-    else:
-        base_name = f'{DEFAULT_DATE} {company_name} {document_type}'
-
-    # Guard against combined filename exceeding filesystem limits
-    # 255 max - 4 (.pdf) - 6 (_(999)) - 1 = 244 chars for base_name
-    max_base = 244
-    if len(base_name) > max_base:
-        excess = len(base_name) - max_base
-        truncated = company_name[:len(company_name) - excess].rstrip()
-        if not truncated.strip():
-            truncated = UNKNOWN_VALUE
-        if document_date:
-            base_name = f'{document_date.strftime(date_format)} {truncated} {document_type}'
-        else:
-            base_name = f'{DEFAULT_DATE} {truncated} {document_type}'
-
-    new_name = normalize_unicode(f"{base_name}.pdf")
+    new_name = normalize_unicode(new_name)
+    if not new_name.lower().endswith(".pdf"):
+        new_name = f"{new_name}.pdf"
+    base_name = new_name[:-4]
     new_path = os.path.join(os.path.dirname(pdf_path), new_name)
 
     if pdf_path == new_path:
         logging.info(f'File "{new_name}" is already correctly named.')
         return None
 
-    # Handle duplicate filenames
     counter = 0
     while os.path.exists(new_path):
         counter += 1
-        new_name = f'{base_name}_({counter}).pdf'
+        new_name = f"{base_name}_({counter}).pdf"
         new_path = os.path.join(os.path.dirname(pdf_path), new_name)
 
     if dry_run:
@@ -241,7 +209,6 @@ def rename_invoice(
     _rename_with_retry(pdf_path, new_path)
     logging.info(f'Document renamed to: {new_name}')
 
-    # Write undo log entry
     if undo_log_path:
         _write_undo_log(undo_log_path, pdf_path, new_path, batch_id=batch_id)
 

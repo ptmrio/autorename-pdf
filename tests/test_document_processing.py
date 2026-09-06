@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from _document_processing import (
     harmonize_company_name,
     parse_document_date,
-    rename_invoice,
+    render_filename,
+    rename_document,
     undo_renames,
     _write_undo_log,
     _read_undo_log,
@@ -21,6 +22,25 @@ from _document_processing import (
     write_empty_batch,
     _rename_with_retry,
 )
+from _profiles import select_profile
+
+
+def _business_name(config, company, date, doc_type, description=""):
+    profile_id, profile = select_profile(config)
+    date_str = date.strftime("%d.%m.%Y") if date else ""
+    return render_filename(profile_id, profile, {
+        "document_date": date_str,
+        "company_name": company,
+        "document_type": doc_type,
+        "description": description,
+    }, config)
+
+
+def _rename(pdf_path, company, date, doc_type, config, undo_log_path=None, batch_id=None, dry_run=False):
+    return rename_document(
+        pdf_path, _business_name(config, company, date, doc_type),
+        undo_log_path, batch_id, dry_run,
+    )
 
 
 class TestHarmonizeCompanyName:
@@ -76,7 +96,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
@@ -88,7 +108,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER",
             sample_config, dry_run=True
         )
@@ -102,7 +122,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is None  # skipped
@@ -116,7 +136,7 @@ class TestRenameInvoice:
         with open(existing, 'w') as f:
             f.write("fake pdf 2")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
@@ -128,7 +148,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, 'Invalid<>Name', datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
@@ -140,7 +160,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, '<>:"/\\|?*', datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
@@ -151,7 +171,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", None, "ER", sample_config
         )
         assert result is not None
@@ -163,7 +183,7 @@ class TestRenameInvoice:
             f.write("fake pdf")
         log_path = str(tmp_path / ".autorename-log.json")
 
-        rename_invoice(
+        _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER",
             sample_config, undo_log_path=log_path, batch_id="test-batch-001"
         )
@@ -183,7 +203,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "ACME", datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert "15-03-2024" in result
@@ -193,7 +213,7 @@ class TestRenameInvoice:
         with open(pdf_path, 'w') as f:
             f.write("fake pdf")
 
-        result = rename_invoice(
+        result = _rename(
             pdf_path, "RO\u0308HRS", datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None
@@ -496,7 +516,8 @@ class TestFilenameLength:
             f.write("fake pdf")
 
         long_name = "A" * 250
-        result = rename_invoice(
+        sample_config["profiles"] = {"business": {"truncate_field": "company_name"}}
+        result = _rename(
             pdf_path, long_name, datetime.date(2024, 3, 15), "ER", sample_config
         )
         assert result is not None

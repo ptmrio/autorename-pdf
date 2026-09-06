@@ -1,8 +1,9 @@
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
-from _document_processing import render_filename
+from _document_processing import render_filename, rename_document, undo_renames
 from _profiles import select_profile
 
 
@@ -123,3 +124,33 @@ def test_invoice_id_overlay_keeps_amount_and_opt_out_keeps_raw_description(sampl
         "truncate_field": "company_name",
     }) == "20260906 ACME ER.pdf"
     assert values["description"] == "12,13"
+
+
+def test_profile_names_keep_collision_dry_run_skip_and_cross_profile_undo(sample_config, tmp_path):
+    source = tmp_path / "original.pdf"
+    source.write_bytes(b"original bytes")
+    log = tmp_path / "undo.json"
+    target_name = rendered(sample_config, "academic", {
+        "document_date": DATE, "first_author_surname": "Smith", "title": "A" * 400,
+    })
+    existing = tmp_path / target_name
+    existing.write_bytes(b"existing bytes")
+    expected = tmp_path / (target_name[:-4] + "_(1).pdf")
+    preview = rename_document(str(source), target_name, str(log), "preview", dry_run=True)
+    assert Path(preview) == expected
+    assert source.read_bytes() == b"original bytes"
+    assert not expected.exists()
+    assert not log.exists()
+    actual = rename_document(str(source), target_name, str(log), "academic-batch")
+    assert Path(actual) == expected
+    assert expected.read_bytes() == b"original bytes"
+    assert existing.read_bytes() == b"existing bytes"
+    assert len(expected.name) == 252
+    assert rename_document(str(existing), target_name, str(log), "skip-batch") is None
+    sample_config["profile"] = "business"
+    restored, failed, files = undo_renames(str(log), batch_id="academic-batch")
+    assert (restored, failed) == (1, 0)
+    assert len(files) == 1
+    assert source.read_bytes() == b"original bytes"
+    assert not expected.exists()
+    assert existing.read_bytes() == b"existing bytes"
