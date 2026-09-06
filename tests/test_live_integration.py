@@ -109,7 +109,7 @@ class TestOpenAI:
     def test_letter_not_invoice(self, openai_config):
         md = _extract("text_letter_globex.pdf", openai_config)
         assert "GLOBEX" in md.company_name.upper()
-        assert md.document_type.upper() not in ["ER", "AR"]
+        assert md.document_type.upper() not in ["ER", "AR", "AP"]
 
     def test_multipage_invoice(self, openai_config):
         md = _extract("multipage_invoice_stark.pdf", openai_config)
@@ -138,7 +138,7 @@ class TestAnthropic:
     def test_letter_not_invoice(self, anthropic_config):
         md = _extract("text_letter_globex.pdf", anthropic_config)
         assert "GLOBEX" in md.company_name.upper()
-        assert md.document_type.upper() not in ["ER", "AR"]
+        assert md.document_type.upper() not in ["ER", "AR", "AP"]
 
     def test_multipage_invoice(self, anthropic_config):
         md = _extract("multipage_invoice_stark.pdf", anthropic_config)
@@ -414,16 +414,16 @@ class TestPromptExtension:
     def test_outgoing_ar_with_amount(self, openai_prompt_ext_config):
         """Outgoing invoice should have invoice code + amount."""
         md = _extract("text_outgoing_invoice_wayne.pdf", openai_prompt_ext_config)
-        # AI may classify as AR (outgoing) or ER (incoming) depending on perspective
-        assert re.search(r'[EA]R', md.document_type.upper()), \
-            f"Expected ER or AR in doc_type, got: {md.document_type}"
+        # AI may classify as AR (outgoing) or AP/ER (incoming) depending on perspective
+        assert re.search(r'\b(AP|AR|ER)\b', md.document_type.upper()), \
+            f"Expected AP, AR, or ER in doc_type, got: {md.document_type}"
         assert re.search(r'\d', md.document_type), \
             f"Expected digits in doc_type with prompt_extension, got: {md.document_type}"
 
     def test_letter_no_amount(self, openai_prompt_ext_config):
-        """Non-invoice should NOT get ER/AR classification."""
+        """Non-invoice should NOT get AP/AR/ER classification."""
         md = _extract("text_letter_globex.pdf", openai_prompt_ext_config)
-        assert md.document_type.upper() not in ["ER", "AR"]
+        assert md.document_type.upper() not in ["ER", "AR", "AP"]
 
 
 # ---------------------------------------------------------------------------

@@ -179,6 +179,12 @@ def test_reject_filename_placeholder_syntax(sample_config, template):
         resolve_profiles(sample_config)
 
 
+def test_business_prompt_defaults_to_ap_ar(sample_config):
+    desc = select_profile(sample_config)[1]["fields"]["document_type"]["description"]
+    assert 'use only "AP"' in desc
+    assert 'use only "AR"' in desc
+
+
 def test_interpolation_is_single_pass_and_user_company_override_wins(sample_config):
     sample_config["company"]["name"] = "Own {literal}"
     sample_config["output"]["language"] = "German"

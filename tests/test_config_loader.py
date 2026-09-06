@@ -66,6 +66,8 @@ class TestLoadYamlConfig:
         assert result["ai"]["model"] == "claude-sonnet-4-6"
         # Defaults should be applied
         assert result["pdf"]["max_pages"] == 3
+        assert result["pdf"]["incoming_invoice"] == "AP"
+        assert result["pdf"]["outgoing_invoice"] == "AR"
         assert result["output"]["language"] == "English"
 
     def test_missing_file(self):

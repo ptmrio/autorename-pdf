@@ -133,7 +133,7 @@ def sample_config():
             "vision": False,
             "text_quality_threshold": 0.3,
             "outgoing_invoice": "AR",
-            "incoming_invoice": "ER",
+            "incoming_invoice": "AP",
         },
         "paddleocr": {
             "venv_path": "",
@@ -278,7 +278,7 @@ def real_config():
             "vision": True,
             "text_quality_threshold": 0.3,
             "outgoing_invoice": "AR",
-            "incoming_invoice": "ER",
+            "incoming_invoice": "AP",
         },
         "paddleocr": {
             "venv_path": "",
@@ -361,7 +361,7 @@ def _base_live_config() -> dict:
             "vision": False,
             "text_quality_threshold": 0.3,
             "outgoing_invoice": "AR",
-            "incoming_invoice": "ER",
+            "incoming_invoice": "AP",
         },
         "paddleocr": {
             "venv_path": "",

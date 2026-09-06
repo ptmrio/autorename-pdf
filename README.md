@@ -1,7 +1,7 @@
 <div align="center">
   <h1>AutoRename-PDF</h1>
-  <p><b>Automatically rename PDF files using AI and OCR.</b><br>
-  Extracts metadata from any PDF — default names look like <code>20260906 ACME ER 12,13.pdf</code>.</p>
+  <p><b>AI PDF renamer for invoices, scanned documents, and academic papers.</b><br>
+  Turn PDF contents into filenames like <code>20260906 ACME AP 12,13.pdf</code>.</p>
   <p>
     <a href="https://github.com/ptmrio/autorename-pdf/releases"><img src="https://img.shields.io/github/v/release/ptmrio/autorename-pdf" alt="GitHub Release"></a>
     <a href="https://github.com/ptmrio/autorename-pdf/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ptmrio/autorename-pdf" alt="MIT License"></a>
@@ -10,16 +10,33 @@
   </p>
 </div>
 
+Batch rename invoices and other PDFs from their contents with a Windows drag-and-drop GUI, a right-click action in Windows Explorer, or a cross-platform Python CLI. Preview names before applying them, undo a batch, and keep company names consistent with fuzzy-matched aliases. Business filenames include the date, company, document type, and printed invoice total; an academic profile names papers by date, author, venue, and title.
+
+Use OpenAI, Anthropic (Claude), Google Gemini, xAI (Grok), or a local LLM through Ollama. Text extraction, PaddleOCR, and vision cover digital, scanned, and image-only PDFs. Ollama + local PaddleOCR support fully offline processing once installed. Invoice codes default to **AP/AR**. For German bookkeeping workflows (Rechnungen umbenennen), switch to [DATEV-style ER/AR codes](#invoice-naming-apar-and-datev-style-erar).
+
+| Start here | What you need |
+|------------|---------------|
+| [Windows ZIP / GUI](#quick-start) | Download the release, run setup, then drag in PDFs or use Explorer. GUI and context-menu EXE are Windows-only. |
+| [Private, offline renaming](#ollama-setup) | Run Ollama + PaddleOCR locally, with no API key or per-request fee. |
+| [Python CLI on macOS / Linux](#macos--linux) | Install from source for batch renaming, dry-run, and JSON output. |
+| [Developer setup](#developer-documentation) | Find architecture, tests, builds, and AI tool integration. |
+
 ![AutoRename-PDF desktop GUI showing drag-and-drop PDF renaming with AI-extracted metadata](screenshot/autorename-pdf-gui.png)
 
-- **Desktop GUI** — Drag-and-drop files, preview renames before applying, undo if needed
-- **5 AI Providers** — OpenAI, Anthropic (Claude), Google Gemini, xAI (Grok), and Ollama for free offline use
-- **3-Tier Extraction** — Text extraction (free, instant) + OCR for scanned PDFs + vision for image-only PDFs
-- **Windows Integration** — Right-click context menu in Windows Explorer for instant renaming
-- **Batch Processing** — Rename hundreds of PDFs at once with automatic company name harmonization
-- **Privacy Option** — Run fully offline with Ollama + PaddleOCR — no data leaves your machine
+## Contents
 
-## Quick Start
+- [Windows quick start](#quick-start) · [Common questions](#common-questions)
+- [Configuration](#configuration): [API keys](#api-key-setup) · [Cloud or local setups](#recommended-setups) · [Provider models](#provider-models)
+- [OCR and vision for scanned PDFs](#extraction-settings) · [Invoice naming: AP/AR and DATEV-style ER/AR](#invoice-naming-apar-and-datev-style-erar)
+- [Extraction profiles](#dynamic-extraction-profiles): [Business filenames and printed amounts](#business-filenames-and-printed-amounts) · [Academic papers](#academic-paper-naming) · [Custom templates and fields](#custom-templates-and-fields)
+- [Usage](#usage): [Windows GUI](#gui) · [Windows Explorer](#context-menu) · [Command line and JSON](#command-line) · [Preview, undo, and skipping](#dry-run-preview-undo-and-already-correct-files) · [Full CLI reference](#full-cli-reference)
+- [Company name harmonization](#company-name-harmonization) · [Offline Ollama setup](#ollama-setup) · [Python on macOS / Linux](#macos--linux)
+- [Developer documentation](#developer-documentation): [Setup](#development-setup) · [Architecture](#architecture) · [Tests](#testing) · [Builds](#building) · [Contributing](#contributing)
+- [Support the project](#support-the-project) · [MIT license](LICENSE)
+
+<a id="quick-start"></a>
+
+## Windows Quick Start: ZIP, GUI, and Explorer
 
 1. **Download** the latest [release ZIP](https://github.com/ptmrio/autorename-pdf/releases)
 2. **Extract** and run `setup.ps1` (right-click → "Run with PowerShell")
@@ -31,44 +48,29 @@
    ```
 4. **Launch** `autorename-pdf-gui.exe` — or right-click any PDF in Explorer
 
-> `setup.ps1` creates `config.yaml` from the template, adds context menu entries, and optionally installs PaddleOCR for offline OCR of scanned documents.
+> `setup.ps1` creates `config.yaml` from the template if it is missing, offers to add context menu entries, and optionally installs PaddleOCR for offline OCR of scanned documents.
 >
 > Run `setup.ps1` from normal PowerShell, without "Run as Administrator". Only choosing to install or remove Explorer context menus requests UAC. Config creation and PaddleOCR installation/removal stay under your original Windows user, including when another administrator approves UAC. Already-elevated interactive setup asks you to rerun normally.
 
 ## Common Questions
 
 **Does it work offline?**
-Yes. Use Ollama (free, local AI) + PaddleOCR. No data leaves your machine, no API key needed. See [Ollama Setup](#ollama-setup).
+Yes. Use Ollama (free, local AI) + PaddleOCR on your machine. After downloading the software and models, local processing needs no cloud connection or API key. See [Ollama Setup](#ollama-setup).
 
 **What types of PDFs does it handle?**
-Any PDF: text-based (digital), scanned (OCR), or image-only (vision). All three extraction methods can run together.
+It handles text-based (digital), scanned (OCR), and image-only (vision) PDFs. All three extraction methods can run together. See [OCR and vision settings](#extraction-settings).
 
 **How much does it cost?**
-The tool is free and open source. Cloud AI providers charge ~$0.001 per PDF. Ollama is completely free.
+The tool is free and open source. The cloud text/OCR setup below has a rough estimate of ~$0.001 per PDF; actual charges depend on the provider, model, and document. Ollama has no API fee. See [cloud and offline setups](#recommended-setups).
 
 **Does it work on macOS or Linux?**
 The CLI works cross-platform via Python. The GUI and context menu are Windows-only. See [macOS / Linux](#macos--linux).
 
-<details>
-<summary><strong>Table of Contents</strong></summary>
+**Can I check names before renaming, or undo a batch?**
+Yes. Use the GUI preview or CLI `--dry-run`, then undo a completed batch if needed. Files whose names already match the extracted result are skipped. See [preview and undo](#dry-run-preview-undo-and-already-correct-files).
 
-- [Configuration](#configuration)
-  - [API Key Setup](#api-key-setup)
-  - [Recommended Setups](#recommended-setups)
-  - [Provider Models](#provider-models)
-  - [Extraction Settings](#extraction-settings)
-  - [Dynamic extraction profiles](#dynamic-extraction-profiles)
-- [Usage](#usage)
-  - [GUI](#gui)
-  - [Context Menu](#context-menu)
-  - [Command Line](#command-line)
-- [Company Name Harmonization](#company-name-harmonization)
-- [Ollama Setup](#ollama-setup)
-- [macOS / Linux](#macos--linux)
-- [Support the Project](#support-the-project)
-- [Developer Documentation](#developer-documentation)
-
-</details>
+**Can I name research papers or change the filename format?**
+Yes. Choose the built-in academic profile or customize fields and templates in YAML. See [extraction profiles](#dynamic-extraction-profiles).
 
 ## Configuration
 
@@ -105,7 +107,9 @@ The `${VAR_NAME}` syntax works in any string value in `config.yaml`. A `.env` fi
 
 Text extraction (pdfplumber) **always runs** — it's free and instant. OCR and vision are independent add-ons you enable based on your needs.
 
-#### Cloud AI + PaddleOCR (Best Accuracy)
+<a id="cloud-ai--paddleocr-best-accuracy"></a>
+
+#### Cloud AI + PaddleOCR for Mixed Documents
 
 PaddleOCR runs locally for free, cloud AI handles smart extraction. Great for mixed document types.
 
@@ -119,7 +123,7 @@ pdf:
   vision: false                # not needed — OCR covers it
 ```
 
-**Cost:** ~$0.001/PDF. **Requires:** API key + PaddleOCR (~500 MB, installed via `setup.ps1`).
+**Estimated cost:** ~$0.001/PDF, depending on model and document. **Requires:** API key + PaddleOCR (~500 MB, installed via `setup.ps1`).
 
 #### Cloud AI + Vision (No Local Setup)
 
@@ -135,11 +139,11 @@ pdf:
   vision: true                 # send page images to LLM
 ```
 
-**Cost:** ~$0.002/PDF. **Requires:** API key + vision-capable model.
+**Estimated cost:** ~$0.002/PDF, depending on model and document. **Requires:** API key + vision-capable model.
 
 #### Fully Offline (Max Privacy)
 
-Everything runs on your machine. No data leaves your computer, no API keys, no cost.
+Everything runs on your machine once the software and models are downloaded. With a local Ollama endpoint and local PaddleOCR, no document data leaves your computer and there are no API keys or per-request charges.
 
 ```yaml
 ai:
@@ -163,9 +167,11 @@ pdf:
 | xAI | `grok-4.20-beta-0309-non-reasoning` | — |
 | Ollama | `qwen3:8b` | `qwen3:4b` / `llama3.2:3b` |
 
-See `config.yaml.example` for full documentation of all settings.
+See [config.yaml.example](config.yaml.example) for full documentation of all settings.
 
-### Extraction Settings
+<a id="extraction-settings"></a>
+
+### OCR and Vision for Scanned PDF Filenames
 
 | Setting | Values | Description |
 |---------|--------|-------------|
@@ -178,27 +184,52 @@ See `config.yaml.example` for full documentation of all settings.
 - **`true`** = always run alongside text extraction
 - **`"auto"`** = run only when text quality falls below threshold
 
-All enabled sources are combined before sending to the AI — maximizing extraction accuracy.
+All enabled sources are combined before sending to the selected AI. PaddleOCR reads page text locally; vision sends page images to a vision-capable model. OCR and vision are independent, so you can enable either or both.
 
-### Dynamic extraction profiles
+### Invoice Naming: AP/AR and DATEV-style ER/AR
+
+For invoice batches, set `company.name` to your own company so the AI can distinguish your business from the counterparty. Use [company aliases](#company-name-harmonization) to standardize extracted vendor and customer names.
+
+Invoice type codes default to `AP` (Accounts Payable — vendor bills you
+receive) and `AR` (Accounts Receivable — invoices you send). There is no ISO
+filename standard for incoming vs outgoing invoices; `II`/`OI` is not used in
+accounting systems (`OI` usually means open items in SAP). Restore German
+DATEV-style codes with:
+
+```yaml
+pdf:
+  incoming_invoice: ER   # Eingangsrechnung
+  outgoing_invoice: AR   # Ausgangsrechnung
+```
+
+<a id="dynamic-extraction-profiles"></a>
+
+### Extraction Profiles: Business, Academic, and Custom
+
+#### Business Filenames and Printed Amounts
 
 The default business filename now includes a fourth component:
-`20260906 ACME ER 12,13.pdf`. ER (Eingangsrechnung) and AR (Ausgangsrechnung)
-already identify invoice types. The description copies the printed final total;
-if no total is printed, the filename is `20260906 ACME ER.pdf`. Currency is kept
-only when printed with the amount. Non-invoices copy an explicit subject/title
-in its original language instead of generating a summary.
+`20260906 ACME AP 12,13.pdf`. Invoice types use the `pdf.incoming_invoice` /
+`pdf.outgoing_invoice` codes (default AP / AR). They already identify the
+document type. The description copies the printed final total; if no total is
+printed, the filename is `20260906 ACME AP.pdf`. Currency is kept only when
+printed with the amount. Non-invoices copy an explicit subject/title in its
+original language instead of generating a summary.
 
 Existing v2 configs still load, but generated names and prompts intentionally
 change. Remove old prompt extensions that append the amount to document_type
-when adopting this default, or an amount may appear twice (`ER 12,13 12,13`).
+when adopting this default, or an amount may appear twice (`AP 12,13 12,13`).
 Your config and prompt_extension are never silently rewritten or filtered.
+
+#### Academic Paper Naming
 
 Set `profile: business` or `profile: academic` in config. A run can override
 that selection with `rename <path> --profile academic` without saving config.
 Academic filenames use date, first author's surname, venue, and full printed
 title with spaces; absent venue disappears. A printed year alone normalizes
 to January 1 of that year, not evidence of the publication day.
+
+#### Custom Templates and Fields
 
 All extraction fields are required strings; missing values are empty strings.
 JSON adds `profile` and raw `fields` to each file result. These values survive
@@ -240,7 +271,7 @@ profiles:
 ```
 
 The latter retains the inherited amount in description and produces
-`20260906 ACME ER 12,13 12345.pdf`.
+`20260906 ACME AP 12,13 12345.pdf`.
 
 Inherit business fields into a receipts profile, or declare a standalone
 two-field profile:
@@ -280,18 +311,19 @@ profiles:
 
 ## Usage
 
-### GUI
+<a id="gui"></a>
 
-Launch `autorename-pdf-gui.exe` to open the desktop interface.
+### Windows GUI: Drag, Preview, and Rename
 
-- **Drag and drop** PDF files or folders onto the window
-- **Dry-run preview** shows proposed renames before applying
-- **Undo** reverses the last rename operation
-- Supports light and dark themes
+Launch `autorename-pdf-gui.exe` and drag PDF files or folders onto the window. Use the dry-run preview to inspect proposed names before applying them, and Undo to reverse the last rename operation. The interface supports light and dark themes.
 
-### Context Menu
+The settings view displays your provider, PDF processing, OCR, company, and output settings. It can validate the configuration and open its folder; edit `config.yaml` to change settings.
 
-After running `setup.ps1`, right-click in Windows Explorer:
+<a id="context-menu"></a>
+
+### Rename PDFs from Windows Explorer
+
+After choosing to install context menu entries in `setup.ps1`, right-click in Windows Explorer:
 
 - **Single PDF**: Right-click a PDF → `Auto Rename PDF`
 - **Folder of PDFs**: Right-click a folder → `Auto Rename PDFs in Folder`
@@ -299,7 +331,11 @@ After running `setup.ps1`, right-click in Windows Explorer:
 
 > **Windows 11 Note:** Context menu entries appear under "Show more options" (Shift+F10).
 
-### Command Line
+<a id="command-line"></a>
+
+### Command Line: Batch Rename PDFs and Export JSON
+
+Process a single file or hundreds of PDFs in folders, with `--recursive` for subfolders. The examples below use the Windows EXE; Python users can replace `autorename-pdf-cli.exe` with `python autorename-pdf.py` after [installing from source](#macos--linux).
 
 ![AutoRename-PDF CLI showing PDF renaming in PowerShell](screenshot/autorename-pdf-cli.png)
 
@@ -329,6 +365,14 @@ autorename-pdf-cli.exe --vision --ocr "scanned_document.pdf"
 autorename-pdf-cli.exe rename --output json "C:\path\to\folder"
 ```
 
+JSON output includes batch counts (`total`, `renamed`, `skipped`, `failed`), `success`, `dry_run`, `batch_id`, and per-file results in `files`. Each file includes its selected `profile` and raw extraction `fields`, so scripts can use the metadata independently of the final filename. See [profile field behavior](#custom-templates-and-fields) and [exit codes](#exit-codes).
+
+### Dry-run Preview, Undo, and Already-correct Files
+
+Use `--dry-run` to inspect the proposed names without changing files, or use the GUI preview and then apply its cached results. A file is skipped when its existing name already matches the generated name. The CLI `undo` command reverses the last batch; `undo --list`, `undo --batch <id>`, and `undo --all` let you inspect or restore earlier batches.
+
+<a id="full-cli-reference"></a>
+
 <details>
 <summary><strong>Full CLI Reference</strong></summary>
 
@@ -356,6 +400,7 @@ autorename-pdf-cli.exe rename --output json "C:\path\to\folder"
 | `--output`, `-o` | Output format: `text` or `json` (default: auto-detect) |
 | `--quiet`, `-q` | Suppress non-essential output |
 | `--verbose`, `-v` | Show detailed processing info |
+| `--config` | Path to `config.yaml` (default: auto-detect from EXE/script directory) |
 
 #### Undo Options
 
@@ -382,7 +427,7 @@ autorename-pdf-cli.exe rename --output json "C:\path\to\folder"
 
 ## Company Name Harmonization
 
-Standardize company name variations using `harmonized-company-names.yaml`:
+Standardize company name variations using `harmonized-company-names.yaml`. Start with [the example mapping](harmonized-company-names.yaml.example), then add your preferred names and aliases:
 
 ```yaml
 ACME:
@@ -400,12 +445,13 @@ The tool uses fuzzy matching (Jaro-Winkler similarity) to automatically map extr
 
 **Quick Tip:** Copy your PDF filenames, paste them into ChatGPT/Claude/Gemini with _"Create a harmonized-company-names.yaml mapping these company name variations to standardized names"_ — then save the result.
 
-<details>
-<summary><strong><a id="ollama-setup">Ollama Setup (Free Local AI)</a></strong></summary>
+<a id="ollama-setup"></a>
 
-Ollama runs AI models entirely on your machine — no API key, no cloud, no cost per request.
+## Offline PDF Renaming with Ollama and PaddleOCR
 
-#### Recommended Models
+Ollama runs local LLMs on your machine — no API key, no cloud, no cost per request. Pair it with PaddleOCR to rename scanned PDFs offline, using the [fully offline configuration](#fully-offline-max-privacy). Download the software and models before going offline, and keep Ollama running locally.
+
+### Recommended Models
 
 | Model | VRAM | Best for | Download |
 |-------|------|----------|----------|
@@ -414,7 +460,7 @@ Ollama runs AI models entirely on your machine — no API key, no cloud, no cost
 | `qwen3:4b` | ~3 GB | Budget GPU / less VRAM | ~2.5 GB |
 | `llama3.2:3b` | ~2.5 GB | Minimal hardware | ~2 GB |
 
-#### Setup
+### Setup
 
 1. **Install Ollama:**
    ```powershell
@@ -435,14 +481,13 @@ Ollama runs AI models entirely on your machine — no API key, no cloud, no cost
      api_key: ""
    ```
 
-**Requirements:** Windows 10 22H2+ or Windows 11. GPU with 6+ GB VRAM recommended (works CPU-only with 16+ GB RAM but slower). See [ollama.com](https://ollama.com) for troubleshooting, GPU setup, and model management.
+**Windows requirements:** Windows 10 22H2+ or Windows 11. GPU with 6+ GB VRAM recommended (works CPU-only with 16+ GB RAM but slower). See [ollama.com](https://ollama.com) for troubleshooting, GPU setup, and model management.
 
-</details>
+<a id="macos--linux"></a>
 
-<details>
-<summary><strong><a id="macos--linux">macOS / Linux (Run from Python Source)</a></strong></summary>
+## Python CLI on macOS / Linux
 
-The CLI works cross-platform via Python. The GUI and context menu are Windows-only.
+The CLI works cross-platform via Python 3.11+. The GUI and context menu are Windows-only.
 
 ```bash
 # Clone and set up
@@ -466,8 +511,6 @@ python autorename-pdf.py invoice.pdf
 - Log files are written to `~/.local/share/autorename-pdf/`
 - All core functionality (text extraction, AI processing, renaming) works cross-platform
 
-</details>
-
 ## Support the Project
 
 If AutoRename-PDF saves you time, consider supporting its development:
@@ -483,10 +526,11 @@ Also check out [PhraseVault](https://phrasevault.app) — a text expander and sn
 
 - [@claus82](https://github.com/claus82) — Thank you for your generous donation!
 
-<details>
-<summary><strong><a id="developer-documentation">Developer Documentation</a></strong></summary>
+<a id="developer-documentation"></a>
 
-## Development Setup
+## Developer Documentation
+
+### Development Setup
 
 **Prerequisites:** Python 3.11+ (CLI floor), Git. Optional OCR embed is Python 3.13.15 with PaddlePaddle 3.3.1 / PaddleOCR 3.7.0 (`PP-OCRv6_small` defaults).
 
@@ -501,9 +545,9 @@ pip install -r requirements-dev.txt  # for testing
 cp config.yaml.example config.yaml
 ```
 
-## Architecture
+### Architecture
 
-Functional Python (no classes). Modules prefixed with `_` are internal:
+The Python core uses a functional style. Modules prefixed with `_` are internal:
 
 | Module | Purpose |
 |--------|---------|
@@ -515,7 +559,7 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 | `_config_loader.py` | YAML v2 config loading, schema validation, defaults |
 | `_utils.py` | Filename validation, constants |
 
-## AI Providers (Technical)
+### AI Providers (Technical)
 
 OpenAI and Anthropic use native structured parse. [Instructor](https://github.com/jxnl/instructor) is used only for Gemini, xAI, and Ollama.
 
@@ -527,7 +571,7 @@ OpenAI and Anthropic use native structured parse. [Instructor](https://github.co
 | `xai` | openai (base_url) | Instructor TOOLS mode |
 | `ollama` | openai (base_url) | Instructor JSON mode, local models, no API key needed |
 
-## Testing
+### Testing
 
 ```bash
 python -m ruff check .
@@ -536,7 +580,7 @@ pytest tests/ -v --cov
 
 Unit tests mock AI API calls. Business logic (harmonization, date parsing, filename generation) should have >80% coverage.
 
-### Live Tests
+#### Live Tests
 
 ```bash
 pytest tests/ --run-live -v                       # All available providers
@@ -547,7 +591,7 @@ pytest tests/ --run-live --provider anthropic -v   # Anthropic only
 
 API keys are loaded from `.env` file (see `.env.example`). Ollama tests require Ollama running locally.
 
-## Building
+### Building
 
 ```bash
 python build.py                  # Build everything, sign all
@@ -559,7 +603,7 @@ python build.py --cli-only       # Build CLI EXE only (skip GUI + packaging)
 
 **Output** (in `Releases/`): `AutoRename-PDF-Portable-{version}.zip`
 
-## AI-Assisted Development
+### AI-Assisted Development
 
 This repository is **AI-ready** — it includes configuration and skills for [Claude Code](https://claude.ai/code) and compatible AI tools (Cursor, Gemini CLI, Codex CLI, etc.).
 
@@ -585,15 +629,13 @@ This repository is **AI-ready** — it includes configuration and skills for [Cl
 
 The [SKILL.md format](https://docs.anthropic.com/en/docs/claude-code/skills) is an open standard — these skills work with any AI tool that supports it.
 
-## Contributing
+### Contributing
 
 We're currently not accepting direct contributions to maintain project consistency. You're welcome to:
 
 - **Open an issue** to report bugs, request features, or ask questions
 - **Create your own fork** to customize the tool for your needs
 - **Share feedback** about your experience using the tool
-
-</details>
 
 ---
 

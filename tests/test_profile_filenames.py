@@ -28,10 +28,10 @@ MIXED = "{document_date} {first_author_surname} {journal_name} - {title}"
 
 
 @pytest.mark.parametrize("selected,values,overlay,date_format,expected", [
-    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="ER", description="12,13"), None, None, "20260906 ACME ER 12,13.pdf", id="business-incoming-printed-total"),
+    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="AP", description="12,13"), None, None, "20260906 ACME AP 12,13.pdf", id="business-incoming-printed-total"),
     pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="AR", description="1.234,56"), None, None, "20260906 ACME AR 1.234,56.pdf", id="business-outgoing-grouped-total"),
-    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="ER", description="EUR 12,13"), None, None, "20260906 ACME ER EUR 12,13.pdf", id="business-printed-currency"),
-    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="ER", description="", invoice_id="12345"), {"fields": {"invoice_id": {"description": "Printed invoice id."}}}, None, "20260906 ACME ER.pdf", id="business-no-total-even-with-id"),
+    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="AP", description="EUR 12,13"), None, None, "20260906 ACME AP EUR 12,13.pdf", id="business-printed-currency"),
+    pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="AP", description="", invoice_id="12345"), {"fields": {"invoice_id": {"description": "Printed invoice id."}}}, None, "20260906 ACME AP.pdf", id="business-no-total-even-with-id"),
     pytest.param("business", dict(document_date=DATE, company_name="ACME", document_type="Letter", description="Terminbestätigung"), None, None, "20260906 ACME Letter Terminbestätigung.pdf", id="business-verbatim-subject"),
     pytest.param("business", dict(document_date=DATE, company_name="<>:", document_type="?*", description=""), None, None, "20260906 Unknown Unknown.pdf", id="business-unusable-company-type"),
     pytest.param("academic", dict(document_date=DATE, first_author_surname="Smith", title="A Study"), None, None, "20260906 Smith A Study.pdf", id="academic-missing-venue"),
@@ -43,7 +43,7 @@ MIXED = "{document_date} {first_author_surname} {journal_name} - {title}"
     pytest.param("custom", {}, {"extends": "business"}, None, "00000000.pdf", id="custom-business-empty-no-fallbacks"),
     pytest.param("academic", {}, None, None, "00000000.pdf", id="academic-all-empty"),
     pytest.param("business", {}, None, None, "00000000 Unknown Unknown.pdf", id="business-all-empty"),
-    pytest.param("business", dict(document_date="not a date", company_name="ACME", document_type="ER", description="12,13"), None, None, "00000000 ACME ER 12,13.pdf", id="business-unparseable-date"),
+    pytest.param("business", dict(document_date="not a date", company_name="ACME", document_type="AP", description="12,13"), None, None, "00000000 ACME AP 12,13.pdf", id="business-unparseable-date"),
 ])
 def test_spec_filename_table(sample_config, selected, values, overlay, date_format, expected):
     assert rendered(sample_config, selected, values, overlay, date_format) == expected
@@ -91,10 +91,10 @@ def test_hard_cut_after_target_exhaustion_strips_trailing_dot(sample_config):
 
 
 def test_no_second_truncation_target(sample_config):
-    expected = ("20260906 " + "C" * 400 + " ER")[:244] + ".pdf"
+    expected = ("20260906 " + "C" * 400 + " AP")[:244] + ".pdf"
     assert rendered(sample_config, "business", {
         "document_date": DATE, "company_name": "C" * 400,
-        "document_type": "ER", "description": "12,13",
+        "document_type": "AP", "description": "12,13",
     }) == expected
 
 
@@ -115,16 +115,16 @@ def test_subject_overlapping_category_is_not_deduplicated(sample_config):
 
 
 def test_invoice_id_overlay_keeps_amount_and_opt_out_keeps_raw_description(sample_config):
-    values = {"document_date": DATE, "company_name": "ACME", "document_type": "ER", "description": "12,13", "invoice_id": "12345"}
+    values = {"document_date": DATE, "company_name": "ACME", "document_type": "AP", "description": "12,13", "invoice_id": "12345"}
     assert rendered(sample_config, "business", values, {
         "fields": {"invoice_id": {"description": "Printed invoice number."}},
         "template": "{document_date} {company_name} {document_type} {description} {invoice_id}",
-    }) == "20260906 ACME ER 12,13 12345.pdf"
+    }) == "20260906 ACME AP 12,13 12345.pdf"
     del values["invoice_id"]
     assert rendered(sample_config, "business", values, {
         "template": "{document_date} {company_name} {document_type}",
         "truncate_field": "company_name",
-    }) == "20260906 ACME ER.pdf"
+    }) == "20260906 ACME AP.pdf"
     assert values["description"] == "12,13"
 
 

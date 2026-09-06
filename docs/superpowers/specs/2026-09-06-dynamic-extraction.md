@@ -12,9 +12,9 @@ V1 supports selecting and configuring extraction profiles through CLI and the ex
 
 The default profile is `business`. Its default filename is intentionally changed from three components to four:
 
-`20260906 ACME ER 12,13.pdf`
+`20260906 ACME AP 12,13.pdf`
 
-ER means Eingangsrechnung (incoming invoice); AR means Ausgangsrechnung (outgoing invoice). They already identify the document type. `ER Invoice 12345` is not the default behavior. If no printed amount exists, the result is `20260906 ACME ER.pdf`.
+AP means Accounts Payable (incoming vendor bills); AR means Accounts Receivable (invoices you send). They already identify the document type. `AP Invoice 12345` is not the default behavior. If no printed amount exists, the result is `20260906 ACME AP.pdf`. German DATEV-style codes are a config override: `incoming_invoice: ER` and `outgoing_invoice: AR`.
 
 Non-goals: marketplace, plugin framework, automatic profile detection, per-document profile switching within a run, GUI profile selector or schema editor, mandatory GUI dynamic-fields display, journal alias maps, generic per-field alias framework, new extraction value types, or changes to OCR/vision selection. pdfplumber always runs; OCR and vision remain independent. The Python CLI remains cross-platform; GUI and Explorer integration remain Windows-only.
 
@@ -143,7 +143,7 @@ profiles:
     truncate_field: description
 ```
 
-With total `12,13` and number `12345`, this yields `20260906 ACME ER 12,13 12345.pdf`. The inherited amount instruction stays intact. Users may instead override descriptions and templates for other preferences.
+With total `12,13` and number `12345`, this yields `20260906 ACME AP 12,13 12345.pdf`. The inherited amount instruction stays intact. Users may instead override descriptions and templates for other preferences.
 
 Opt out of the fourth filename component with both settings:
 
@@ -156,7 +156,7 @@ profiles:
 
 This restores the three-token filename shape; `description` is still extracted and available in JSON. It does not restore the former generated-summary semantics for non-invoice `document_type`; users seeking that behavior can override that field's description too. Existing configs remain syntactically valid but names and prompts are intentionally not byte-identical. No silent legacy-profile selection or automatic config rewrite.
 
-The current example `prompt_extension` that adds an amount to `document_type` is superseded by the business `description` field. Documentation and the example config must replace that recommendation and tell existing users to remove that amount-appending instruction when adopting the new default, avoiding `ER 12,13 12,13`. Do not silently rewrite or filter users' prompt extensions. Global `prompt_extension` remains supported and appends verbatim; a user-supplied conflicting extension can still change model output.
+The current example `prompt_extension` that adds an amount to `document_type` is superseded by the business `description` field. Documentation and the example config must replace that recommendation and tell existing users to remove that amount-appending instruction when adopting the new default, avoiding `AP 12,13 12,13`. Do not silently rewrite or filter users' prompt extensions. Global `prompt_extension` remains supported and appends verbatim; a user-supplied conflicting extension can still change model output.
 
 Inheritance, replacement, and deletion require no Python edits:
 
@@ -214,10 +214,10 @@ The table is normative. Dates are 06.09.2026 unless stated otherwise; each outpu
 
 | Template / extracted situation | Required filename |
 |---|---|
-| Business default; ACME, ER, printed total `12,13` | `20260906 ACME ER 12,13.pdf` |
+| Business default; ACME, AP, printed total `12,13` | `20260906 ACME AP 12,13.pdf` |
 | Business default; ACME, AR, printed total `1.234,56` | `20260906 ACME AR 1.234,56.pdf` |
-| Business default; ACME, ER, printed amount `EUR 12,13` | `20260906 ACME ER EUR 12,13.pdf` |
-| Business default; ACME, ER, no printed total (even if invoice number exists) | `20260906 ACME ER.pdf` |
+| Business default; ACME, AP, printed amount `EUR 12,13` | `20260906 ACME AP EUR 12,13.pdf` |
+| Business default; ACME, AP, no printed total (even if invoice number exists) | `20260906 ACME AP.pdf` |
 | Business default; ACME, Letter, printed subject `Terminbestätigung` | `20260906 ACME Letter Terminbestätigung.pdf` |
 | Business default; company/type unusable, description absent | `20260906 Unknown Unknown.pdf` |
 | Academic default; Smith, no venue, title `A Study` | `20260906 Smith A Study.pdf` |
@@ -229,7 +229,7 @@ The table is normative. Dates are 06.09.2026 unless stated otherwise; each outpu
 | Custom extending business, default four-token template, all values empty | `00000000.pdf` |
 | Academic default; all values empty | `00000000.pdf` |
 | Business default; all values empty | `00000000 Unknown Unknown.pdf` |
-| Business default; unparseable date, ACME, ER, `12,13` | `00000000 ACME ER 12,13.pdf` |
+| Business default; unparseable date, ACME, AP, `12,13` | `00000000 ACME AP 12,13.pdf` |
 
 `truncate_field` explicitly controls length. Shorten that rendered field from the right until the 244-character basename limit is met or its value is exhausted, rerendering and cleaning separators. If a field appears repeatedly, shorten the shared rendered value for all its occurrences. Fallbacks are applied before truncation; do not reinsert an exhausted value or loop on `Unknown`. If still too long, hard-cut the rendered basename to 244 characters and remove invalid trailing punctuation. Do not introduce a second implicit truncation target. Preserve `.pdf`, current `_(n)` collision naming, current length reservation for the suffix, dry-run behavior, rename retries, already-correct skips, and path-based undo across profile changes.
 
@@ -252,7 +252,7 @@ Legacy metadata keys map independently from named fields; do not branch all thre
 
 These legacy values precede filename sanitization, fallback, and truncation. `new_name` and `new_path` retain their existing meanings and nullability. GUI previews must use returned `new_name` rather than reconstructing a name from legacy company/date/type values. The GUI can ignore the additive properties; any necessary compatibility typing must preserve nullable legacy fields and existing older cached results. V1 requires no profile-specific GUI form or display. Config-selected profiles work through the existing sidecar invocation.
 
-For a successful default invoice, the additive payload contains `profile: "business"` and `fields` with `document_date: "06.09.2026"`, `company_name: "ACME"`, `document_type: "ER"`, and `description: "12,13"`. Its `new_name` is `20260906 ACME ER 12,13.pdf`; legacy `date` is `2026-09-06`. For academic, `company` and `doc_type` are null unless those fields were explicitly added, and raw `title` stays complete even if the filename title is truncated.
+For a successful default invoice, the additive payload contains `profile: "business"` and `fields` with `document_date: "06.09.2026"`, `company_name: "ACME"`, `document_type: "AP"`, and `description: "12,13"`. Its `new_name` is `20260906 ACME AP 12,13.pdf`; legacy `date` is `2026-09-06`. For academic, `company` and `doc_type` are null unless those fields were explicitly added, and raw `title` stays complete even if the filename title is truncated.
 
 ## Acceptance gates
 

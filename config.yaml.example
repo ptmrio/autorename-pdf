@@ -32,8 +32,11 @@ pdf:
   ocr: false                      # false / true / "auto" — PaddleOCR for scanned PDFs
   vision: false                   # false / true / "auto" — send page images to LLM
   text_quality_threshold: 0.3     # Triggers OCR/vision when set to "auto"
-  outgoing_invoice: "AR"          # Outgoing invoice / Ausgangsrechnung
-  incoming_invoice: "ER"          # Incoming invoice / Eingangsrechnung
+  incoming_invoice: "AP"          # Accounts Payable — vendor bills you receive
+  outgoing_invoice: "AR"          # Accounts Receivable — invoices you send
+  # German DATEV-style codes (Eingangsrechnung / Ausgangsrechnung):
+  # incoming_invoice: "ER"
+  # outgoing_invoice: "AR"
 
 # PaddleOCR Configuration (optional, install via setup.ps1)
 paddleocr:
