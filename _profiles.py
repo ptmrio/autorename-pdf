@@ -236,7 +236,9 @@ def _validate_overlay_shape(profile_id: str, overlay, *, allow_extends: bool) ->
         raise ValueError(f"profile {profile_id!r} must be a mapping")
     extra = set(overlay) - _PROFILE_KEYS
     if extra:
-        raise ValueError(f"unknown keys on profile {profile_id!r}: {sorted(extra)}")
+        raise ValueError(
+            f"unknown keys on profile {profile_id!r}: {sorted(extra, key=repr)}"
+        )
     if "extends" in overlay:
         if not allow_extends:
             raise ValueError(f"built-in profile {profile_id!r} cannot set extends")

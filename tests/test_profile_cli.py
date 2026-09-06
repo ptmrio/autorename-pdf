@@ -32,6 +32,7 @@ def call_cli(argv, capsys):
     pytest.param("filename: '{document_date}'\n", id="unsupported-top-level-filename"),
     pytest.param("profiles: {business: {truncate_field: []}}\n", id="truncate-list"),
     pytest.param("profiles: {notes: {extends: '', fields: {document_date: {description: Date}, title: {description: Title}}, template: '{title}', truncate_field: title}}\n", id="empty-parent"),
+    pytest.param("profiles:\n  business:\n    1: bad\n    typo: bad\n", id="mixed-unknown-keys"),
 ])
 @pytest.mark.parametrize("command", ["rename", "validate"])
 def test_invalid_config_exits_3_before_content_provider_or_mutation(

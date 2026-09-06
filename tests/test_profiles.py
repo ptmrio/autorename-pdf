@@ -92,6 +92,7 @@ def test_deleting_company_with_repaired_references_does_not_recreate_it(sample_c
 @pytest.mark.parametrize("definitions", [
     pytest.param({"business": None}, id="null-profile"),
     pytest.param({"business": {"extra_fields": {}}}, id="unknown-profile-key"),
+    pytest.param({"business": {1: "bad", "typo": "bad"}}, id="mixed-unknown-keys"),
     pytest.param({"business": {"extends": "academic"}}, id="builtin-extends"),
     pytest.param({"x": {"extends": "missing"}}, id="unknown-parent"),
     pytest.param({"x": {"extends": "y"}, "y": {"extends": "business"}}, id="forward-parent"),
