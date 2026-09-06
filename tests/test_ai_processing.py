@@ -164,11 +164,12 @@ class TestGetInstructorClient:
 class TestExtractMetadataProviderKwargs:
     """Instructor-shaped kwargs for compat providers (gemini/xai/ollama)."""
 
+    @pytest.mark.parametrize("provider", ["gemini", "xai", "ollama"])
     @patch("_ai_processing.get_instructor_client")
     @patch("_ai_processing.build_system_prompt", return_value="test prompt")
-    def test_compat_provider_includes_temperature(self, mock_prompt, mock_client, sample_config):
+    def test_compat_provider_includes_temperature(self, mock_prompt, mock_client, sample_config, provider):
         """Gemini/xAI/Ollama instructor calls keep temperature and omit native kwargs."""
-        sample_config["ai"]["provider"] = "gemini"
+        sample_config["ai"].update(provider=provider, temperature=0.7)
         mock_completions = MagicMock()
         mock_completions.create.return_value = DocumentMetadata(
             company_name="Test", document_date="01.01.2024", document_type="ER"
@@ -179,7 +180,7 @@ class TestExtractMetadataProviderKwargs:
         extract_metadata_from_text("test text", sample_config)
 
         call_kwargs = mock_completions.create.call_args[1]
-        assert call_kwargs["temperature"] == 0.0
+        assert call_kwargs["temperature"] == 0.7
         assert "max_tokens" not in call_kwargs
         assert "reasoning" not in call_kwargs
 
@@ -281,39 +282,41 @@ class TestExtractMetadata:
 class TestBuildProviderCreateKwargs:
     def test_anthropic_omits_temperature_and_sets_max_tokens(self, sample_config):
         sample_config["ai"]["provider"] = "anthropic"
-        sample_config["ai"]["temperature"] = 0.0
+        sample_config["ai"]["temperature"] = 0.7
         kwargs = build_provider_create_kwargs("anthropic", sample_config)
-        assert "temperature" not in kwargs
-        assert kwargs["max_tokens"] == 1024
+        assert kwargs == {"max_tokens": 1024}
 
-    def test_openai_sets_reasoning_none_and_omits_temperature(self, sample_config):
+    @pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-5.6-test"])
+    def test_openai_sets_reasoning_none_and_omits_temperature(self, sample_config, model):
         sample_config["ai"]["provider"] = "openai"
-        sample_config["ai"]["model"] = "gpt-5.6-luna"
+        sample_config["ai"]["model"] = model
+        sample_config["ai"]["temperature"] = 0.7
         kwargs = build_provider_create_kwargs("openai", sample_config)
-        assert kwargs["reasoning"] == {"effort": "none"}
-        assert "temperature" not in kwargs
+        assert kwargs == {"reasoning": {"effort": "none"}}
 
     def test_openai_gpt5_does_not_send_reasoning_effort_none(self, sample_config):
         sample_config["ai"]["provider"] = "openai"
         sample_config["ai"]["model"] = "gpt-5"
+        sample_config["ai"]["temperature"] = 0.7
         kwargs = build_provider_create_kwargs("openai", sample_config)
-        effort = (kwargs.get("reasoning") or {}).get("effort")
-        assert effort != "none"
-        assert "temperature" not in kwargs
+        assert kwargs == {}
 
-    def test_compat_provider_keeps_temperature(self, sample_config):
-        sample_config["ai"]["provider"] = "ollama"
+    @pytest.mark.parametrize("provider", ["gemini", "xai", "ollama"])
+    def test_compat_provider_keeps_temperature(self, sample_config, provider):
+        sample_config["ai"]["provider"] = provider
         sample_config["ai"]["temperature"] = 0.2
-        kwargs = build_provider_create_kwargs("ollama", sample_config)
-        assert kwargs["temperature"] == 0.2
-        assert "max_tokens" not in kwargs
-        assert "reasoning" not in kwargs
+        kwargs = build_provider_create_kwargs(provider, sample_config)
+        assert kwargs == {"temperature": 0.2}
 
 
 class TestNativeStructuredExtract:
-    def test_openai_text_uses_responses_parse(self, sample_config):
-        sample_config["ai"]["provider"] = "openai"
-        sample_config["ai"]["model"] = "gpt-5.6-luna"
+    @pytest.mark.parametrize("model, expected_reasoning", [
+        ("gpt-5.6-luna", {"effort": "none"}),
+        ("gpt-5.6-test", {"effort": "none"}),
+        ("gpt-5", None),
+    ])
+    def test_openai_text_uses_responses_parse(self, sample_config, model, expected_reasoning):
+        sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
         parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
@@ -323,14 +326,21 @@ class TestNativeStructuredExtract:
             result = extract_metadata_from_text("invoice text", sample_config)
         assert result.company_name == "ACME"
         kwargs = mock_client.responses.parse.call_args.kwargs
+        mock_client.responses.parse.assert_called_once()
+        assert kwargs["model"] == model
         assert kwargs["text_format"] is DocumentMetadata
         assert kwargs["store"] is False
-        assert kwargs["reasoning"] == {"effort": "none"}
         assert "temperature" not in kwargs
+        if expected_reasoning is None:
+            assert "reasoning" not in kwargs
+        else:
+            assert kwargs["reasoning"] == expected_reasoning
+        assert "reasoning_effort" not in kwargs
         mock_client.chat.completions.create.assert_not_called()
 
     def test_anthropic_text_uses_messages_parse(self, sample_config):
         sample_config["ai"]["provider"] = "anthropic"
+        sample_config["ai"]["temperature"] = 0.7
         parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
@@ -340,13 +350,21 @@ class TestNativeStructuredExtract:
             result = extract_metadata_from_text("rechnung", sample_config)
         assert result.company_name == "GmbH"
         kwargs = mock_client.messages.parse.call_args.kwargs
+        mock_client.messages.parse.assert_called_once()
         assert kwargs["output_format"] is DocumentMetadata
         assert kwargs["max_tokens"] == 1024
         assert "temperature" not in kwargs
+        assert "reasoning" not in kwargs
+        assert "reasoning_effort" not in kwargs
+        mock_client.chat.completions.create.assert_not_called()
 
-    def test_openai_vision_puts_images_in_input(self, sample_config, sample_pil_image):
-        sample_config["ai"]["provider"] = "openai"
-        sample_config["ai"]["model"] = "gpt-5.6-luna"
+    @pytest.mark.parametrize("model, expected_reasoning", [
+        ("gpt-5.6-luna", {"effort": "none"}),
+        ("gpt-5.6-test", {"effort": "none"}),
+        ("gpt-5", None),
+    ])
+    def test_openai_vision_puts_images_in_input(self, sample_config, sample_pil_image, model, expected_reasoning):
+        sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
         parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
@@ -363,10 +381,21 @@ class TestNativeStructuredExtract:
             contents.extend(item.get("content", []) if isinstance(item.get("content"), list) else [])
         assert any(c.get("type") == "input_image" for c in contents)
         assert not any(c.get("type") == "image_url" for c in contents)
+        mock_client.responses.parse.assert_called_once()
+        assert kwargs["model"] == model
+        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["store"] is False
+        assert "temperature" not in kwargs
+        if expected_reasoning is None:
+            assert "reasoning" not in kwargs
+        else:
+            assert kwargs["reasoning"] == expected_reasoning
+        assert "reasoning_effort" not in kwargs
         mock_client.chat.completions.create.assert_not_called()
 
     def test_anthropic_vision_keeps_image_blocks_in_messages(self, sample_config, sample_pil_image):
         sample_config["ai"]["provider"] = "anthropic"
+        sample_config["ai"]["temperature"] = 0.7
         parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
@@ -382,10 +411,20 @@ class TestNativeStructuredExtract:
         image_blocks = [c for c in user_content if c.get("type") == "image"]
         assert len(image_blocks) == 1
         assert image_blocks[0]["source"]["type"] == "base64"
+        mock_client.messages.parse.assert_called_once()
+        assert kwargs["max_tokens"] == 1024
+        assert "temperature" not in kwargs
+        assert "reasoning" not in kwargs
+        assert "reasoning_effort" not in kwargs
         mock_client.chat.completions.create.assert_not_called()
 
-    def test_openai_text_and_images_uses_responses_parse(self, sample_config, sample_pil_image):
-        sample_config["ai"]["provider"] = "openai"
+    @pytest.mark.parametrize("model, expected_reasoning", [
+        ("gpt-5.6-luna", {"effort": "none"}),
+        ("gpt-5.6-test", {"effort": "none"}),
+        ("gpt-5", None),
+    ])
+    def test_openai_text_and_images_uses_responses_parse(self, sample_config, sample_pil_image, model, expected_reasoning):
+        sample_config["ai"].update(provider="openai", model=model, temperature=0.7)
         parsed = DocumentMetadata(company_name="ACME", document_date="15.03.2024", document_type="ER")
         mock_resp = MagicMock(output_parsed=parsed)
         mock_client = MagicMock()
@@ -395,12 +434,22 @@ class TestNativeStructuredExtract:
             result = extract_metadata_from_text_and_images("invoice text", [sample_pil_image], sample_config)
         assert result.company_name == "ACME"
         kwargs = mock_client.responses.parse.call_args.kwargs
-        assert kwargs["text_format"] is DocumentMetadata
         assert "input" in kwargs
+        mock_client.responses.parse.assert_called_once()
+        assert kwargs["model"] == model
+        assert kwargs["text_format"] is DocumentMetadata
+        assert kwargs["store"] is False
+        assert "temperature" not in kwargs
+        if expected_reasoning is None:
+            assert "reasoning" not in kwargs
+        else:
+            assert kwargs["reasoning"] == expected_reasoning
+        assert "reasoning_effort" not in kwargs
         mock_client.chat.completions.create.assert_not_called()
 
     def test_anthropic_text_and_images_uses_messages_parse(self, sample_config, sample_pil_image):
         sample_config["ai"]["provider"] = "anthropic"
+        sample_config["ai"]["temperature"] = 0.7
         parsed = DocumentMetadata(company_name="GmbH", document_date="01.01.2024", document_type="ER")
         mock_resp = MagicMock(parsed_output=parsed)
         mock_client = MagicMock()
@@ -410,22 +459,37 @@ class TestNativeStructuredExtract:
             result = extract_metadata_from_text_and_images("rechnung", [sample_pil_image], sample_config)
         assert result.company_name == "GmbH"
         kwargs = mock_client.messages.parse.call_args.kwargs
+        mock_client.messages.parse.assert_called_once()
         assert kwargs["output_format"] is DocumentMetadata
+        assert kwargs["max_tokens"] == 1024
+        assert "temperature" not in kwargs
+        assert "reasoning" not in kwargs
+        assert "reasoning_effort" not in kwargs
         user_content = kwargs["messages"][0]["content"]
         assert any(c.get("type") == "image" for c in user_content)
         mock_client.chat.completions.create.assert_not_called()
 
 
 class TestNativeClientMaxRetries:
-    def test_openai_constructor_uses_config_max_retries(self, sample_config):
+    @pytest.mark.parametrize("base_url, expected_base_url", [
+        ("", None),
+        ("https://example.invalid/v1", "https://example.invalid/v1"),
+    ])
+    def test_openai_constructor_uses_config_max_retries(self, sample_config, base_url, expected_base_url):
         sample_config["ai"]["max_retries"] = 5
+        sample_config["ai"]["base_url"] = base_url
         with patch("_ai_processing.OpenAI") as mock_openai:
             _get_openai_client(sample_config)
-        assert mock_openai.call_args.kwargs["max_retries"] == 5
+        mock_openai.assert_called_once_with(
+            api_key=sample_config["ai"]["api_key"],
+            base_url=expected_base_url, max_retries=5,
+        )
 
     def test_anthropic_constructor_uses_config_max_retries(self, sample_config):
         sample_config["ai"]["provider"] = "anthropic"
         sample_config["ai"]["max_retries"] = 5
         with patch("anthropic.Anthropic") as mock_anthropic:
             _get_anthropic_client(sample_config)
-        assert mock_anthropic.call_args.kwargs["max_retries"] == 5
+        mock_anthropic.assert_called_once_with(
+            api_key=sample_config["ai"]["api_key"], max_retries=5,
+        )
