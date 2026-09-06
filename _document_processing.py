@@ -15,6 +15,7 @@ from rapidfuzz.distance import JaroWinkler
 
 from _utils import UNKNOWN_VALUE, DEFAULT_DATE, is_valid_filename, sanitize_filename, normalize_unicode
 from _config_loader import load_company_names
+from _profiles import iter_template_tokens
 
 # Constants
 CONFIDENCE_THRESHOLD = 0.85
@@ -74,6 +75,107 @@ def _rename_with_retry(src: str, dst: str, retries: int = 3, delay: float = 1.0)
                     f"Cannot rename: file is in use after {retries} attempts. "
                     f"Close the file and try again: {src}"
                 )
+
+
+_MAX_BASE = 244
+_SEP_CHARS = frozenset(" \t\n\r-_")
+
+
+def _is_separator_run(text: str) -> bool:
+    return bool(text) and all(ch in _SEP_CHARS for ch in text)
+
+
+def _collapse_separator_run(text: str) -> str:
+    if "-" in text:
+        if any(ch.isspace() for ch in text):
+            return " - "
+        return "-"
+    if "_" in text:
+        return "_"
+    return " "
+
+
+def _prepare_values(profile_id: str, profile: dict, fields: dict[str, str], config: dict) -> dict[str, str]:
+    date_format = config.get("output", {}).get("date_format", "%Y%m%d")
+    working = {}
+    for name in profile["fields"]:
+        raw = fields.get(name, "")
+        if not isinstance(raw, str):
+            raw = ""
+        if name == "document_date":
+            parsed = parse_document_date(raw) if raw.strip() else None
+            working[name] = parsed.strftime(date_format) if parsed else DEFAULT_DATE
+            continue
+        cleaned = sanitize_filename(normalize_unicode(raw))
+        if cleaned.strip():
+            working[name] = cleaned
+        elif profile_id == "business" and name in ("company_name", "document_type"):
+            working[name] = UNKNOWN_VALUE
+        else:
+            working[name] = ""
+    return working
+
+
+def _join_tokens(tokens, values: dict[str, str]) -> str:
+    pieces: list[str] = []
+    pending_sep = ""
+    started = False
+    for kind, payload in tokens:
+        if kind == "field":
+            value = values.get(payload, "")
+            if not value:
+                continue
+            if started:
+                if pending_sep:
+                    if _is_separator_run(pending_sep):
+                        pieces.append(_collapse_separator_run(pending_sep))
+                    else:
+                        pieces.append(pending_sep)
+                pending_sep = ""
+            pieces.append(value)
+            started = True
+            continue
+        if not started:
+            if _is_separator_run(payload):
+                continue
+            pieces.append(payload)
+            started = True
+            pending_sep = ""
+            continue
+        if _is_separator_run(payload):
+            pending_sep += payload
+        else:
+            if pending_sep:
+                if _is_separator_run(pending_sep):
+                    pieces.append(_collapse_separator_run(pending_sep))
+                else:
+                    pieces.append(pending_sep)
+                pending_sep = ""
+            pieces.append(payload)
+    base = "".join(pieces)
+    base = sanitize_filename(normalize_unicode(base))
+    base = " ".join(base.split())
+    return base
+
+
+def render_filename(profile_id: str, profile: dict, fields: dict[str, str], config: dict) -> str:
+    """Pure basename+.pdf renderer. Does not mutate fields."""
+    tokens = iter_template_tokens(profile["template"])
+    values = _prepare_values(profile_id, profile, fields, config)
+    truncate = profile["truncate_field"]
+
+    base = _join_tokens(tokens, values)
+    target = values.get(truncate, "")
+    while len(base) > _MAX_BASE and target:
+        target = target[:-1]
+        values[truncate] = target
+        base = _join_tokens(tokens, values)
+        target = values.get(truncate, "")
+    if len(base) > _MAX_BASE:
+        base = base[:_MAX_BASE].rstrip(". ")
+    if not base:
+        base = UNKNOWN_VALUE
+    return normalize_unicode(f"{base}.pdf")
 
 
 def rename_invoice(

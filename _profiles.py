@@ -198,6 +198,37 @@ def interpolate_profile_text(text: str, config: dict) -> str:
     return "".join(out)
 
 
+def iter_template_tokens(template: str):
+    """Yield ('lit', text) or ('field', name) pairs from a validated template."""
+    tokens: list[tuple[str, str]] = []
+    lit: list[str] = []
+    i = 0
+    n = len(template)
+    while i < n:
+        ch = template[i]
+        if ch == "{":
+            if i + 1 < n and template[i + 1] == "{":
+                lit.append("{")
+                i += 2
+                continue
+            close = template.find("}", i + 1)
+            if lit:
+                tokens.append(("lit", "".join(lit)))
+                lit = []
+            tokens.append(("field", template[i + 1:close]))
+            i = close + 1
+            continue
+        if ch == "}":
+            lit.append("}")
+            i += 2
+            continue
+        lit.append(ch)
+        i += 1
+    if lit:
+        tokens.append(("lit", "".join(lit)))
+    return tokens
+
+
 def _validate_overlay_shape(profile_id: str, overlay, *, allow_extends: bool) -> None:
     if overlay is None:
         raise ValueError(f"profile {profile_id!r} is null")
