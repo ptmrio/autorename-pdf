@@ -4,7 +4,7 @@ from __future__ import annotations
 import keyword
 from copy import deepcopy
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 _PROFILE_KEYS = {"intro", "fields", "template", "truncate_field", "harmonize_field", "extends"}
 _PROFILE_SCALARS = ("intro", "template", "truncate_field", "harmonize_field")
@@ -365,3 +365,16 @@ def select_profile(config: dict, profile_id: str | None = None) -> tuple[str, di
     if selected not in profiles:
         raise ValueError(f"unknown profile {selected!r}")
     return selected, deepcopy(profiles[selected])
+
+
+def build_metadata_model(profile: dict):
+    """Concrete required-string model for the resolved profile. No custom base class."""
+    fields = {
+        name: (str, Field(..., description=spec["description"]))
+        for name, spec in profile["fields"].items()
+    }
+    return create_model(
+        "DocumentMetadata",
+        __config__=ConfigDict(extra="forbid", strict=True),
+        **fields,
+    )
