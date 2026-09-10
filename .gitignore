@@ -5,6 +5,8 @@ __pycache__/
 /venv/
 /Releases/
 config.yaml
+*.readme-shot.bak
+*.readme-shot.resource.bak
 harmonized-company-names.yaml
 *.pdf
 *.spec
@@ -19,6 +21,14 @@ _impl_progress.md
 .backup-recovery/
 .worktrees/
 .superpowers/
+.playwright-mcp/
+.ruff_cache/
+AGENTS.md.local-wip
+
+# Ad-hoc GUI/Vite captures (README images live in screenshot/)
+/gui-*.png
+/vite-*.png
+screenshot/_raw/
 
 # GUI (Tauri)
 gui/node_modules/

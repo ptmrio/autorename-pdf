@@ -137,7 +137,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: var(--font-size-sm, 0.8125rem);
-  cursor: pointer;
+  cursor: default;
 }
 
 /* When used with toggle-switch, spread items apart */
@@ -342,4 +342,77 @@
 .settings-version {
   font-size: var(--font-size-xs, 0.75rem);
   color: var(--text-muted);
+}
+
+.settings-readonly-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+}
+.settings-readonly-title {
+  font-weight: var(--font-weight-medium);
+}
+
+.settings-recovery-title {
+  color: var(--color-danger-700, #89090e);
+}
+.dark .settings-recovery-title {
+  color: var(--color-danger-400, #fd574e);
+}
+
+.settings-advanced {
+  border: none;
+}
+.settings-advanced > summary {
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  list-style: revert;
+  margin-bottom: 0.5rem;
+}
+
+/* =============================================================================
+   Settings Appearance (System / Light / Dark segment, app chrome only)
+   ============================================================================= */
+.settings-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-appearance {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.settings-appearance-btn {
+  font-size: var(--font-size-xs, 0.75rem);
+  padding: 0.25rem 0.625rem;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.settings-appearance-btn + .settings-appearance-btn {
+  border-left: 1px solid var(--border-color);
+}
+
+.settings-appearance-btn[aria-checked="true"] {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.settings-appearance-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  z-index: 1;
 }

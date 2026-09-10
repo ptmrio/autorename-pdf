@@ -50,7 +50,7 @@ def _mock_metadata(company, date, doc_type):
 class TestFullPipelineDryRun:
     """Test the full pipeline in dry-run mode (no files renamed)."""
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_text_invoice_dry_run(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
@@ -67,7 +67,7 @@ class TestFullPipelineDryRun:
         # No new file should be created
         assert not os.path.exists(str(tmp_path / "20240315 ACME ER.pdf"))
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_german_invoice_dry_run(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("Mustermann Consulting", "08.02.2025", "ER")
 
@@ -80,7 +80,7 @@ class TestFullPipelineDryRun:
         assert result.status == "renamed"
         assert os.path.exists(pdf_copy)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_outgoing_invoice_ar(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("Wayne Enterprises", "10.03.2025", "AR")
 
@@ -92,7 +92,7 @@ class TestFullPipelineDryRun:
                              str(tmp_path / ".autorename-log.json"), dry_run=True)
         assert result.status == "renamed"
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_letter_non_invoice(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("Globex", "22.01.2025", "Partnership Agreement")
 
@@ -113,8 +113,8 @@ class TestFullPipelineDryRun:
             quality_score=0.0, page_count=1, sources=["text", "ocr"],
         )
         with (
-            patch("autorename_pdf.extract_content", return_value=extraction) as mock_content,
-            patch("autorename_pdf.extract_metadata",
+            patch("_pdf_utils.extract_content", return_value=extraction) as mock_content,
+            patch("_ai_processing.extract_metadata",
                   return_value=_mock_metadata("ACME", "15.03.2024", "ER")) as mock_ai,
         ):
             result = process_pdf(
@@ -136,7 +136,7 @@ class TestFullPipelineDryRun:
 class TestFullPipelineRealRename:
     """Test actual file renaming (not dry run)."""
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_rename_produces_correct_filename(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
@@ -152,7 +152,7 @@ class TestFullPipelineRealRename:
         expected = str(tmp_path / "20240315 ACME ER.pdf")
         assert os.path.exists(expected)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_rename_with_harmonization(self, mock_ai, tmp_path, sample_config, harmonized_names_file):
         mock_ai.return_value = _mock_metadata("ACME Corporation", "15.03.2024", "ER")
 
@@ -167,7 +167,7 @@ class TestFullPipelineRealRename:
         expected = str(tmp_path / "20240315 ACME ER.pdf")
         assert os.path.exists(expected)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_undo_log_written(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
@@ -190,7 +190,7 @@ class TestFullPipelineRealRename:
         assert files[0]["old_path"] == pdf_copy
         assert "20240315 ACME ER.pdf" in files[0]["new_path"]
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_undo_restores_original(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
@@ -208,7 +208,7 @@ class TestFullPipelineRealRename:
         assert fail == 0
         assert os.path.exists(pdf_copy)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_custom_date_format(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
         sample_config["output"]["date_format"] = "%Y-%m-%d"
@@ -223,7 +223,7 @@ class TestFullPipelineRealRename:
         expected = str(tmp_path / "2024-03-15 ACME ER.pdf")
         assert os.path.exists(expected)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     def test_duplicate_filename_increments(self, mock_ai, tmp_path, sample_config):
         mock_ai.return_value = _mock_metadata("ACME", "15.03.2024", "ER")
 
@@ -269,8 +269,8 @@ class TestFullPipelineFailures:
             text=text, ocr_text=ocr_text, images=[], sources=["text", "ocr"],
         )
         with (
-            patch("autorename_pdf.extract_content", return_value=extraction),
-            patch("autorename_pdf.extract_metadata") as mock_ai,
+            patch("_pdf_utils.extract_content", return_value=extraction),
+            patch("_ai_processing.extract_metadata") as mock_ai,
         ):
             result = process_pdf(
                 pdf_copy, sample_config, str(tmp_path / "names.yaml"),
@@ -281,7 +281,7 @@ class TestFullPipelineFailures:
         mock_ai.assert_not_called()
         assert os.path.exists(pdf_copy)
 
-    @patch("autorename_pdf.extract_metadata", return_value=None)
+    @patch("_ai_processing.extract_metadata", return_value=None)
     def test_ai_returns_none(self, mock_ai, tmp_path, sample_config):
         src = os.path.join(FIXTURES_DIR, "text_invoice_acme.pdf")
         pdf_copy = str(tmp_path / "invoice.pdf")
@@ -347,7 +347,7 @@ class TestCollectPdfFiles:
 class TestWorkflowSimulation:
     """Full handler-level workflow tests using real fixture PDFs."""
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
     @patch("autorename_pdf.get_base_directory")
     def test_batch_rename_json_output(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
@@ -391,7 +391,7 @@ class TestWorkflowSimulation:
             assert f["status"] == "renamed"
             assert f["new_name"] is not None
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
     @patch("autorename_pdf.get_base_directory")
     def test_rename_then_undo(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
@@ -436,7 +436,7 @@ class TestWorkflowSimulation:
         # Original file should be restored
         assert os.path.exists(pdf_copy)
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
     @patch("autorename_pdf.get_base_directory")
     def test_mixed_success_and_failure(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):
@@ -470,7 +470,7 @@ class TestWorkflowSimulation:
         assert data["renamed"] == 1
         assert data["failed"] == 1
 
-    @patch("autorename_pdf.extract_metadata")
+    @patch("_ai_processing.extract_metadata")
     @patch("autorename_pdf.load_yaml_config")
     @patch("autorename_pdf.get_base_directory")
     def test_undo_log_in_base_dir_not_pdf_dir(self, mock_bd, mock_load, mock_ai, tmp_path, sample_config, capsys):

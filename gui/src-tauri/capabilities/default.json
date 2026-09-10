@@ -19,6 +19,16 @@
         }
       ]
     },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "autorename-pdf-cli",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
     "dialog:default",
     "fs:default",
     "fs:allow-read-dir",

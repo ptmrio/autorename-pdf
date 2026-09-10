@@ -12,6 +12,11 @@ from typing import Any
 
 import yaml
 
+
+class ConfigSchemaError(Exception):
+    """Raised when config.yaml uses a schema the loader cannot apply."""
+
+
 # Pattern for environment variable references: ${VAR_NAME}
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
@@ -144,6 +149,8 @@ def _migrate_extraction_config(config: dict) -> dict:
     Logs a deprecation warning if old keys are found.
     """
     pdf = config.get("pdf", {})
+    if not isinstance(pdf, dict):
+        return config
     mode = pdf.pop("extraction_mode", None)
     fallback = pdf.pop("ocr_fallback", None)
 
@@ -240,9 +247,9 @@ def _raise_on_duplicate_keys(node) -> None:
 def load_yaml_config(config_path: str) -> dict[str, Any] | None:
     """Load and validate configuration from a YAML file.
 
-    Returns a fully-merged config dict with defaults applied,
-    or None if the file doesn't exist.
-    Exits with error if old schema is detected.
+        Returns a fully-merged config dict with defaults applied,
+        or None if the file doesn't exist.
+        Raises ConfigSchemaError if a v1 schema is detected.
     """
     if not os.path.exists(config_path):
         logging.warning(f'Config file {config_path} not found')
@@ -268,8 +275,9 @@ def load_yaml_config(config_path: str) -> dict[str, Any] | None:
 
         # Detect old v1 schema
         if _detect_old_schema(raw_config):
-            _print_migration_instructions()
-            sys.exit(1)
+            raise ConfigSchemaError(
+                "Config uses v1 schema; migrate to v2 (see config.yaml.example)."
+            )
 
         # Migrate old extraction keys before merging
         _migrate_extraction_config(raw_config)
@@ -299,7 +307,7 @@ def load_yaml_config(config_path: str) -> dict[str, Any] | None:
     except yaml.YAMLError as e:
         logging.error(f'Error parsing YAML config file {config_path}: {e}')
         return None
-    except SystemExit:
+    except ConfigSchemaError:
         raise
     except Exception as e:
         logging.error(f'Error loading config file {config_path}: {e}')

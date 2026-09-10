@@ -51,4 +51,8 @@
   .status-error {
     color: var(--color-danger);
   }
+
+  .dark .status-error {
+    color: var(--color-danger-400, #fd574e);
+  }
 }

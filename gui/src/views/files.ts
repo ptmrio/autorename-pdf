@@ -1,7 +1,7 @@
 import { getState, subscribe, addFiles, clearFiles, setState, updateFileStatuses } from '../lib/state';
 import { setupDragDrop } from '../lib/dnd';
 import { pickPdfFiles, pickFolder } from '../lib/filepicker';
-import { renamePdfs, undoRename, isErrorResult, getUndoLogDir } from '../lib/sidecar';
+import { renamePdfs, undoRename, isErrorResult, getUndoLogDir, inspectConfig } from '../lib/sidecar';
 import { applyCachedRenames } from '../lib/rename-cache';
 import { showToast } from '../lib/toast';
 import type { AppState, FileEntry } from '../lib/state';
@@ -44,14 +44,55 @@ function render(state: AppState): void {
   if (state.view !== 'files') return;
 
   if (state.files.length === 0) {
-    renderEmpty();
+    renderEmpty(state);
   } else {
     renderFileList(state);
   }
 }
 
-function renderEmpty(): void {
+function renderReadyBanner(state: AppState): string {
+  if (!state.statusError) return '';
+  const hint = state.statusError.includes('CLI')
+    ? 'Re-extract the portable ZIP, or run python build.py --cli-only --nosign if developing.'
+    : 'Create config.yaml next to the executable from config.yaml.example.';
+  return `
+    <div id="ready-banner" class="ready-banner" role="${state.statusErrorAlert ? 'alert' : 'status'}">
+      <p>${state.statusError}</p>
+      <p class="ready-banner-hint">${hint}</p>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-retry-ready">Retry</button>
+    </div>`;
+}
+
+async function retryReadiness(): Promise<void> {
+  try {
+    const snapshot = await inspectConfig({ force: true });
+    if (snapshot.valid) {
+      setState({ statusError: '', statusErrorAlert: false });
+    } else if (snapshot.issues.some((i) => i.level === 'error')) {
+      setState({ statusError: 'Config error', statusErrorAlert: true });
+    } else {
+      setState({ statusError: '', statusErrorAlert: false });
+    }
+  } catch (err) {
+    const errStr = String(err);
+    if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries') || errStr.includes('invoke')) {
+      setState({ statusError: 'CLI executable not found', statusErrorAlert: true });
+    } else {
+      setState({ statusError: 'Config error', statusErrorAlert: true });
+    }
+  }
+}
+
+function bindReadyBanner(): void {
+  document.getElementById('btn-retry-ready')?.addEventListener('click', () => {
+    void retryReadiness();
+  });
+}
+
+function renderEmpty(state: AppState): void {
+  const canUndo = Boolean(state.lastBatchId) && !state.processing;
   container.innerHTML = `
+    ${renderReadyBanner(state)}
     <div class="flex flex-col items-center justify-center flex-1 p-8">
       <div class="drop-zone flex flex-col items-center justify-center gap-4 p-12 w-full max-w-lg
                   border-2 border-dashed rounded-xl border-[var(--border-secondary)]
@@ -67,15 +108,20 @@ function renderEmpty(): void {
         </svg>
         <p class="text-[var(--text-secondary)] text-center">
           Drop PDF files here<br>
-          <span class="text-sm text-[var(--text-tertiary)]">or click to browse</span>
+          <span class="text-sm text-[var(--text-muted)]">or click to browse</span><br>
+          <span class="text-sm text-[var(--text-muted)]">Example: 20260907 ACME AP.pdf</span>
         </p>
         <div class="flex gap-3 mt-2">
           <button class="btn btn-primary btn-sm" id="btn-browse-files">Browse Files</button>
           <button class="btn btn-secondary btn-sm" id="btn-browse-folder">Browse Folder</button>
+          ${canUndo ? '<button class="btn btn-secondary btn-sm" id="btn-undo">Undo Last</button>' : ''}
         </div>
       </div>
     </div>
   `;
+
+  bindReadyBanner();
+  document.getElementById('btn-undo')?.addEventListener('click', () => { void handleUndo(); });
 
   document.getElementById('btn-browse-files')?.addEventListener('click', async () => {
     const files = await pickPdfFiles();
@@ -100,6 +146,13 @@ function renderEmpty(): void {
 // File row rendering helpers
 // ---------------------------------------------------------------------------
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;');
+}
+
 function fileVisualState(f: FileEntry): 'pending' | 'preview' | 'renamed' | 'failed' | 'skipped' {
   if (f.status === 'pending' && f.result?.new_name) return 'preview';
   return f.status;
@@ -117,7 +170,7 @@ function renderFileRow(f: FileEntry): string {
   let detail = '';
   if (newName && (vs === 'preview' || vs === 'renamed')) {
     const nameClass = vs === 'preview' ? 'fq-new-name-preview' : 'fq-new-name-renamed';
-    detail = `<span class="fq-preview"><span class="fq-arrow">\u2192</span><span class="fq-new-name ${nameClass}">${newName}</span></span>`;
+    detail = `<span class="fq-preview"><span class="fq-arrow">\u2192</span><span class="fq-new-name ${nameClass}" title="${escapeHtml(newName)}">${escapeHtml(newName)}</span></span>`;
   }
   if (error && vs === 'failed') {
     detail = `<span class="fq-error">${error}</span>`;
@@ -131,7 +184,7 @@ function renderFileRow(f: FileEntry): string {
     <div class="fq-row">
       <span class="${dotClass}"></span>
       <div class="fq-info">
-        <span class="fq-name">${f.name}</span>
+        <span class="fq-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
         ${detail}
       </div>
       <span class="${badgeClass}">${badgeLabel}</span>
@@ -146,32 +199,35 @@ function renderFileList(state: AppState): void {
   const hasResults = state.lastResult !== null;
   const pendingCount = state.files.filter((f) => f.status === 'pending').length;
   const busy = state.processing;
+  const canUndo = Boolean(state.lastBatchId) && !busy;
+  const noFiles = pendingCount === 0;
+  const blocked = busy || noFiles || !!state.statusError;
+  const showProcess = pendingCount > 0;
+  const showPostJob = (hasResults || canUndo) && !showProcess;
 
-  // Button bar: always visible, disabled during processing
-  let actionsHtml: string;
-  if (hasResults) {
-    actionsHtml = `
-      <div class="fq-actions-left">
-        <button class="btn btn-secondary btn-sm" id="btn-undo" ${busy ? 'disabled' : ''}>Undo Last</button>
-        <button class="btn btn-primary btn-sm" id="btn-add-more" ${busy ? 'disabled' : ''}>Add More Files</button>
-      </div>`;
-  } else {
-    const noFiles = pendingCount === 0;
-    const blocked = busy || noFiles || !!state.statusError;
-    actionsHtml = `
-      <div class="fq-actions-left">
-        <button class="btn btn-secondary btn-sm" id="btn-dry-run" ${blocked ? 'disabled' : ''}>Dry Run</button>
+  const processHtml = showProcess ? `
+        <button class="btn btn-secondary btn-sm" id="btn-dry-run" ${blocked ? 'disabled' : ''}>Preview names</button>
         <button class="btn btn-primary btn-sm" id="btn-rename" ${blocked ? 'disabled' : ''}>
           Rename ${pendingCount} File${pendingCount !== 1 ? 's' : ''}
-        </button>
+        </button>` : '';
+  const undoHtml = canUndo || showPostJob ? `
+        <button class="btn btn-secondary btn-sm" id="btn-undo" ${!canUndo ? 'disabled' : ''}>Undo Last</button>` : '';
+  const addMoreHtml = showPostJob || (canUndo && showProcess) ? `
+        <button class="btn ${showProcess ? 'btn-secondary' : 'btn-primary'} btn-sm" id="btn-add-more" ${busy ? 'disabled' : ''}>Add More Files</button>` : '';
+
+  const actionsHtml = `
+      <div class="fq-actions-left">
+        ${processHtml}
+        ${undoHtml}
+        ${addMoreHtml}
       </div>`;
-  }
 
   container.innerHTML = `
     <div class="fq-container" id="file-list-container">
+      ${renderReadyBanner(state)}
       <div class="fq-header">
         <span class="fq-count">${state.files.length} file${state.files.length !== 1 ? 's' : ''}</span>
-        ${busy ? `<span class="fq-progress-text">${state.progress || 'Processing\u2026'}</span>` : ''}
+        ${busy ? `<span class="fq-progress-text" role="status">${state.progress || 'Processing\u2026'}</span>` : ''}
       </div>
       ${busy ? '<div class="fq-progress-bar"></div>' : ''}
       <div class="fq-list">
@@ -184,7 +240,7 @@ function renderFileList(state: AppState): void {
     </div>
   `;
 
-  // Bind actions
+  bindReadyBanner();
   document.getElementById('btn-dry-run')?.addEventListener('click', () => runRename(true));
   document.getElementById('btn-rename')?.addEventListener('click', () => runRename(false));
   document.getElementById('btn-clear')?.addEventListener('click', () => clearFiles());
@@ -217,9 +273,14 @@ async function runRename(dryRun: boolean): Promise<void> {
         undoLogDir,
         (line) => setState({ progress: line }),
       );
-      setState({ processing: false, progress: '', statusError: '' });
+      setState({ processing: false, progress: '', statusError: '', statusErrorAlert: false });
       updateFileStatuses(batch, false);
-      setState({ lastResult: batch, dryRunResult: null, lastBatchId: batch.batch_id ?? null });
+      const prevUndo = getState().lastBatchId;
+      setState({
+        lastResult: batch,
+        dryRunResult: null,
+        lastBatchId: batch.renamed > 0 ? (batch.batch_id ?? null) : prevUndo,
+      });
       if (batch.failed > 0) {
         showToast(`${batch.renamed} renamed, ${batch.failed} failed`, 'warning');
       } else {
@@ -251,8 +312,8 @@ async function runRename(dryRun: boolean): Promise<void> {
     );
   } catch (err) {
     const errStr = String(err);
-    if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries')) {
-      setState({ processing: false, progress: '', statusError: 'CLI executable not found' });
+    if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries') || errStr.includes('invoke')) {
+      setState({ processing: false, progress: '', statusError: 'CLI executable not found', statusErrorAlert: true });
       showToast('CLI executable not found. Re-extract the portable ZIP, or run "python build.py --cli-only --nosign" if developing.', 'danger');
     } else {
       setState({ processing: false, progress: '' });
@@ -261,7 +322,7 @@ async function runRename(dryRun: boolean): Promise<void> {
     return;
   }
 
-  setState({ processing: false, progress: '', statusError: '' });
+  setState({ processing: false, progress: '', statusError: '', statusErrorAlert: false });
 
   if (isErrorResult(result)) {
     let msg = result.message;
@@ -277,7 +338,7 @@ async function runRename(dryRun: boolean): Promise<void> {
       statusMsg = 'Auth error';
     }
     if (result.suggestion) msg += `. ${result.suggestion}`;
-    if (statusMsg) setState({ statusError: statusMsg });
+    if (statusMsg) setState({ statusError: statusMsg, statusErrorAlert: true });
     showToast(msg, 'danger');
     return;
   }
@@ -297,7 +358,7 @@ async function runRename(dryRun: boolean): Promise<void> {
     if (batch.renamed > 0) {
       setState({ lastResult: batch, lastBatchId: batch.batch_id ?? null });
     } else {
-      setState({ lastResult: batch, lastBatchId: null });
+      setState({ lastResult: batch });
     }
     if (batch.failed > 0) {
       showToast(`${batch.renamed} renamed, ${batch.failed} failed`, 'warning');
@@ -334,6 +395,7 @@ async function handleUndo(): Promise<void> {
     } else if (result.success) {
       showToast(`${result.restored} files restored`, 'success');
       clearFiles();
+      setState({ lastBatchId: null });
     } else {
       showToast(`Undo: ${result.restored} restored, ${result.failed} failed`, 'warning');
     }

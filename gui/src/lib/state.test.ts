@@ -185,16 +185,16 @@ describe('clearFiles', () => {
     expect(s.progress).toBe('');
   });
 
-  it('resets statusError (BUG-6)', () => {
-    setState({ statusError: 'Config error' });
+  it('keeps statusError when the queue is cleared', () => {
+    setState({ statusError: 'CLI executable not found' });
     clearFiles();
-    expect(getState().statusError).toBe('');
+    expect(getState().statusError).toBe('CLI executable not found');
   });
 
-  it('resets lastBatchId', () => {
+  it('keeps lastBatchId so Undo survives Clear', () => {
     setState({ lastBatchId: '20260319T120000-abc123' });
     clearFiles();
-    expect(getState().lastBatchId).toBeNull();
+    expect(getState().lastBatchId).toBe('20260319T120000-abc123');
   });
 });
 

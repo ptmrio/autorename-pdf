@@ -2,10 +2,16 @@ import { initTitlebar } from './lib/titlebar';
 import { initTheme } from './lib/theme';
 import { initRenderer, createStatusBar } from './renderer';
 import { setState } from './lib/state';
-import { validateConfig } from './lib/sidecar';
+import { inspectConfig, invalidateConfigSnapshot } from './lib/sidecar';
+import { refreshSettingsIfOpen } from './views/settings';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 document.addEventListener('DOMContentLoaded', () => {
-  initTitlebar();
+  try {
+    initTitlebar();
+  } catch {
+    /* jsdom / Vite without Tauri */
+  }
   initTheme();
 
   const appEl = document.getElementById('app');
@@ -21,18 +27,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initRenderer(content);
 
-  // Startup health check — surface problems in the status bar immediately
-  validateConfig().then((validation) => {
-    if (!validation.valid) {
-      const errors = validation.issues.filter((i) => i.level === 'error');
-      if (errors.length > 0) setState({ statusError: 'Config error' });
+  try {
+    void getCurrentWindow().onFocusChanged((event) => {
+      if (event.payload) {
+        invalidateConfigSnapshot();
+        void refreshSettingsIfOpen();
+      }
+    }).catch(() => {
+      /* non-Tauri / denied */
+    });
+  } catch {
+    /* jsdom */
+  }
+
+  inspectConfig().then((snapshot) => {
+    if (!snapshot.valid) {
+      const errors = snapshot.issues.filter((i) => i.level === 'error');
+      if (errors.length > 0) setState({ statusError: 'Config error', statusErrorAlert: false });
+      else setState({ statusError: '', statusErrorAlert: false });
+    } else {
+      setState({ statusError: '', statusErrorAlert: false });
     }
   }).catch((err) => {
     const errStr = String(err);
-    if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries')) {
-      setState({ statusError: 'CLI executable not found' });
+    if (errStr.includes('sidecar') || errStr.includes('not found') || errStr.includes('binaries') || errStr.includes('invoke')) {
+      setState({ statusError: 'CLI executable not found', statusErrorAlert: false });
     } else {
-      setState({ statusError: 'Config error' });
+      setState({ statusError: 'Config error', statusErrorAlert: false });
     }
   });
 });

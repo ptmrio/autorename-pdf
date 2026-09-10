@@ -14,15 +14,15 @@
 :root {
   /* Surface colors */
   --bg-primary: var(--color-secondary-50, #f8fafc);
-  --bg-secondary: var(--color-secondary-50, #f8fafc);
-  --bg-tertiary: var(--color-secondary-100, #f1f5f9);
-  --bg-elevated: var(--color-secondary-50, #f8fafc);
+  --bg-secondary: var(--color-secondary-100, #e4e8ed);
+  --bg-tertiary: var(--color-secondary-100, #e4e8ed);
+  --bg-elevated: #ffffff;
 
   /* Text colors */
   --text-primary: var(--color-secondary-900, #0f172a);
   --text-secondary: var(--color-secondary-600, #475569);
-  --text-tertiary: var(--color-secondary-400, #94a3b8);
-  --text-muted: var(--color-secondary-400, #94a3b8);
+  --text-tertiary: var(--color-secondary-600, #4f5f74);
+  --text-muted: var(--color-secondary-600, #4f5f74);
 
   /* Border */
   --border-color: var(--color-secondary-200, #e2e8f0);
@@ -31,8 +31,9 @@
   --border-secondary: var(--color-secondary-100, #f1f5f9);
 
   /* Focus ring */
-  --focus-ring: var(--color-primary-400, #60a5fa);
+  --focus-ring: var(--color-primary-500, #d2161c);
   --focus-ring-offset: 2px;
+  --color-primary: var(--color-primary-600);
 
   /* Scrollbar */
   --scrollbar-thumb: var(--color-secondary-300, #cbd5e1);
@@ -57,8 +58,8 @@
   /* Text colors */
   --text-primary: var(--color-secondary-50, #f8fafc);
   --text-secondary: var(--color-secondary-300, #cbd5e1);
-  --text-tertiary: var(--color-secondary-500, #64748b);
-  --text-muted: var(--color-secondary-400, #94a3b8);
+  --text-tertiary: var(--color-secondary-300, #acb8ca);
+  --text-muted: var(--color-secondary-300, #acb8ca);
 
   /* Border */
   --border-color: var(--color-secondary-700, #334155);
@@ -67,7 +68,8 @@
   --border-secondary: var(--color-secondary-600, #475569);
 
   /* Focus ring */
-  --focus-ring: var(--color-primary-500, #3b82f6);
+  --focus-ring: var(--color-primary-400, #fd574d);
+  --color-primary: var(--color-primary-600);
 
   /* Scrollbar */
   --scrollbar-thumb: var(--color-secondary-600, #475569);

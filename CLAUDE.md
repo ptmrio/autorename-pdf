@@ -1,6 +1,6 @@
 # AutoRename-PDF
 
-PDF auto-renamer using AI + OCR. Extracts company name, date, and document type from PDFs, renames to `YYYYMMDD COMPANY DOCTYPE.pdf`.
+PDF auto-renamer using AI + OCR. Extracts company name, date, document type, and printed invoice total from PDFs; default name `YYYYMMDD COMPANY AP 12,13.pdf`. Academic profile uses date, author, venue, and title.
 
 ## Development Setup
 
@@ -19,7 +19,7 @@ pip install -r requirements-dev.txt  # for testing
 All commands assume the venv is activated.
 
 - **Run**: `python autorename-pdf.py [options] <files_or_folders>`
-- **Dry run**: `python autorename-pdf.py --dry-run <files_or_folders>`
+- **Dry run**: `python autorename-pdf.py rename --dry-run <files_or_folders>`
 - **Undo**: `python autorename-pdf.py --undo`
 - **Test**: `pytest tests/ -v --cov`
 - **Lint**: `python -m ruff check .`
@@ -57,7 +57,7 @@ Functional Python (no classes). Modules prefixed with `_` are internal:
 - **NEVER commit `config.yaml`** — contains API keys. Only commit `config.yaml.example`.
 - **NEVER commit `harmonized-company-names.yaml`** — user-specific data. Only commit the `.example`.
 - Platform: Windows-only (context menu EXE via PyInstaller)
-- Config: YAML-based (`config.yaml`), v2 schema — see `config.yaml.example`
+- Config: YAML-based (`config.yaml`), v2 schema — see `config.yaml.example`. Recipe configs (academic, ER/AR, Ollama, vision, invoice-id) live in `examples/`.
 - Python 3.11+ floor for the CLI; OCR embed is Python 3.13.15
 - Company name matching uses Jaro-Winkler similarity (rapidfuzz library)
 - Date parsing uses dateparser with DMY locale

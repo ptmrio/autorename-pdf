@@ -16,13 +16,16 @@ def run_file(tmp_path, monkeypatch, config, selected, raw, *, mode="dry", filena
     content = ExtractionResult(text="Printed content", quality_score=1, page_count=1, sources=["text"])
     if mode == "no-content":
         content = ExtractionResult(text="", quality_score=0, page_count=1, sources=["text"])
-    monkeypatch.setattr(cli, "extract_content", Mock(return_value=content))
+    import _ai_processing
+    import _document_processing
+    import _pdf_utils
+    monkeypatch.setattr(_pdf_utils, "extract_content", Mock(return_value=content))
     extract = Mock(return_value=None if mode == "no-metadata" else model.model_validate(raw))
     if mode == "provider-error":
         extract.side_effect = RuntimeError("provider failed")
-    monkeypatch.setattr(cli, "extract_metadata", extract)
+    monkeypatch.setattr(_ai_processing, "extract_metadata", extract)
     if mode == "rename-error":
-        monkeypatch.setattr(cli, "rename_document", Mock(side_effect=PermissionError("locked")))
+        monkeypatch.setattr(_document_processing, "rename_document", Mock(side_effect=PermissionError("locked")))
     return cli.process_pdf(
         str(source), config, str(tmp_path / "aliases.yaml"), str(tmp_path / "undo.json"),
         dry_run=True, profile_id=profile_id, profile=profile, metadata_model=model,
@@ -52,7 +55,7 @@ def test_business_raw_survives_aliases_unicode_and_truncation(sample_config, tmp
 def test_academic_bypasses_alias_loading_and_keeps_legacy_date(sample_config, tmp_path, monkeypatch):
     import _document_processing as documents
     forbidden = Mock(side_effect=AssertionError("academic must not access company aliases"))
-    monkeypatch.setattr(cli, "harmonize_company_name", forbidden)
+    monkeypatch.setattr(documents, "harmonize_company_name", forbidden)
     monkeypatch.setattr(documents, "load_company_names", forbidden)
     result = run_file(tmp_path, monkeypatch, sample_config, "academic", {
         "document_date": "01.01.2026", "first_author_surname": "Smith",
@@ -73,7 +76,8 @@ def test_different_harmonize_field_does_not_masquerade_as_company(sample_config,
         "template": "{document_date} {provider} {description}",
     }}
     harmonize = Mock(return_value="Canonical Issuer")
-    monkeypatch.setattr(cli, "harmonize_company_name", harmonize)
+    import _document_processing as documents
+    monkeypatch.setattr(documents, "harmonize_company_name", harmonize)
     raw = {
         "document_date": "bad date", "company_name": "Raw company",
         "document_type": "", "description": "12,13", "provider": "Raw issuer",
@@ -112,7 +116,8 @@ def test_academic_added_legacy_names_map_by_presence(sample_config, tmp_path, mo
 def test_failure_and_skip_keep_selected_profile_and_available_raw_fields(
     sample_config, tmp_path, monkeypatch, mode, filename, status, has_fields,
 ):
-    monkeypatch.setattr(cli, "harmonize_company_name", lambda value, path, config: value)
+    import _document_processing as documents
+    monkeypatch.setattr(documents, "harmonize_company_name", lambda value, path, config: value)
     raw = {"document_date": "06.09.2026", "company_name": "ACME", "document_type": "ER", "description": "12,13"}
     result = run_file(tmp_path, monkeypatch, sample_config, "business", raw, mode=mode, filename=filename)
     assert result["profile"] == "business"

@@ -1,6 +1,6 @@
 # AutoRename-PDF
 
-PDF auto-renamer using AI + OCR. Output: `YYYYMMDD COMPANY DOCTYPE.pdf`.
+PDF auto-renamer using AI + OCR. Output: `YYYYMMDD COMPANY AP 12,13.pdf` (business) or academic date/author/venue/title.
 
 Be concise. Smallest correct diff. Always use the project venv — never install Python deps globally.
 
@@ -11,6 +11,7 @@ Do not copy these into this file.
 | Need | Where |
 |------|--------|
 | Provider / OCR / vision knobs | `config.yaml.example` |
+| Recipe configs (academic, ER/AR, Ollama, vision, invoice-id) | `examples/` |
 | Human install and usage | `README.md` |
 | Company-name aliases | `harmonized-company-names.yaml.example` |
 

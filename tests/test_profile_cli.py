@@ -5,6 +5,9 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+import _ai_processing
+import _document_processing
+import _pdf_utils
 from autorename_pdf_runner import _mod as cli
 from _pdf_utils import ExtractionResult
 from _profiles import build_metadata_model
@@ -47,10 +50,10 @@ def test_invalid_config_exits_3_before_content_provider_or_mutation(
     provider = Mock(side_effect=AssertionError("provider called for invalid config"))
     rename = Mock(side_effect=AssertionError("rename called for invalid config"))
     batch = Mock(side_effect=AssertionError("undo batch created for invalid config"))
-    monkeypatch.setattr(cli, "extract_content", content)
-    monkeypatch.setattr(cli, "extract_metadata", provider)
-    monkeypatch.setattr(cli, "rename_document", rename)
-    monkeypatch.setattr(cli, "generate_batch_id", batch)
+    monkeypatch.setattr(_pdf_utils, "extract_content", content)
+    monkeypatch.setattr(_ai_processing, "extract_metadata", provider)
+    monkeypatch.setattr(_document_processing, "rename_document", rename)
+    monkeypatch.setattr(_document_processing, "generate_batch_id", batch)
     argv = ["rename", str(source)] if command == "rename" else ["config", "validate"]
     code, payload = call_cli(argv + ["--config", str(config), "--output", "json"], capsys)
     assert code == 3
@@ -85,7 +88,7 @@ def test_cli_selection_builds_one_model_per_batch_without_config_write(
     sources = [tmp_path / "one.pdf", tmp_path / "two.pdf"]
     for source in sources:
         source.write_bytes(b"keep")
-    monkeypatch.setattr(cli, "extract_content", Mock(return_value=ExtractionResult(
+    monkeypatch.setattr(_pdf_utils, "extract_content", Mock(return_value=ExtractionResult(
         text="Printed content", quality_score=1, page_count=1, sources=["text"],
     )))
     models = []
@@ -93,7 +96,7 @@ def test_cli_selection_builds_one_model_per_batch_without_config_write(
         models.append(metadata_model)
         values = {"document_date": "06.09.2026", "company_name": "ACME", "document_type": "ER", "description": "12,13", "first_author_surname": "Smith", "journal_name": "", "title": "A Study"}
         return metadata_model.model_validate({name: values[name] for name in profile["fields"]})
-    monkeypatch.setattr(cli, "extract_metadata", extract)
+    monkeypatch.setattr(_ai_processing, "extract_metadata", extract)
     factory = Mock(wraps=build_metadata_model)
     monkeypatch.setattr(cli, "build_metadata_model", factory)
     argv = ["rename", *(str(source) for source in sources), "--dry-run", "--config", str(path), "--output", "json"]

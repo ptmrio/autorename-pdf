@@ -563,6 +563,82 @@ class TestValidateConfig:
         assert result["valid"] is True
         assert len(result["issues"]) == 0
 
+    def test_rejects_unknown_provider(self):
+        config = {"ai": {"provider": "not-a-vendor", "api_key": "key", "model": "x"},
+                  "company": {"name": "Acme"}}
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is False
+        assert any(i["field"] == "ai.provider" and i["level"] == "error" for i in result["issues"])
+
+    def test_rejects_invalid_ocr_flag(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "key", "model": "x"},
+            "company": {"name": "Acme"},
+            "pdf": {"ocr": "banana"},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is False
+        assert any(i["field"] == "pdf.ocr" for i in result["issues"])
+
+    def test_rejects_numeric_ocr_flag(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "key", "model": "x"},
+            "company": {"name": "Acme"},
+            "pdf": {"ocr": 1, "vision": 0},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert any(i["field"] == "pdf.ocr" for i in result["issues"])
+        assert any(i["field"] == "pdf.vision" for i in result["issues"])
+
+    def test_rejects_non_positive_max_pages(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "key", "model": "x"},
+            "company": {"name": "Acme"},
+            "pdf": {"max_pages": 0},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is False
+        assert any(i["field"] == "pdf.max_pages" for i in result["issues"])
+
+    def test_rejects_bool_max_pages(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "key", "model": "x"},
+            "company": {"name": "Acme"},
+            "pdf": {"max_pages": True},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is False
+        assert any(i["field"] == "pdf.max_pages" for i in result["issues"])
+
+    def test_non_mapping_sections_are_field_errors_not_crashes(self):
+        result = _validate_config(
+            {"ai": [], "company": [], "pdf": 1},
+            "config.yaml",
+        )
+        assert result["valid"] is False
+        fields = {i["field"] for i in result["issues"] if i["level"] == "error"}
+        assert "ai" in fields
+        assert "company" in fields
+        assert "pdf" in fields
+
+    def test_unexpanded_env_ref_is_error_for_cloud_provider(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "${MISSING_KEY}", "model": "x"},
+            "company": {"name": "Acme"},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is False
+        assert any(i["field"] == "ai.api_key" and i["level"] == "error" for i in result["issues"])
+
+    def test_placeholder_api_key_is_warning_only(self):
+        config = {
+            "ai": {"provider": "openai", "api_key": "your-api-key-here", "model": "x"},
+            "company": {"name": "Acme"},
+        }
+        result = _validate_config(config, "config.yaml")
+        assert result["valid"] is True
+        assert any(i["field"] == "ai.api_key" and i["level"] == "warning" for i in result["issues"])
+
 
 class TestHandleConfigShow:
     """Test config show subcommand."""
@@ -631,6 +707,215 @@ class TestHandleConfigValidate:
         parsed = json.loads(captured.out)
         assert parsed["valid"] is False
         assert len(parsed["issues"]) > 0
+
+
+class TestHandleConfigInspect:
+    """Test config inspect subcommand."""
+
+    @patch("autorename_pdf._validate_config")
+    @patch("autorename_pdf._redact_config")
+    @patch("autorename_pdf.load_yaml_config")
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_inspect_json_combines_show_and_validate(
+        self, mock_basedir, mock_load, mock_redact, mock_validate, capsys
+    ):
+        mock_load.return_value = {"ai": {"provider": "openai", "api_key": "sk-test123456"}}
+        mock_redact.return_value = {"ai": {"provider": "openai", "api_key": "sk-t...3456"}}
+        mock_validate.return_value = {
+            "valid": True,
+            "issues": [],
+            "profile": "business",
+            "resolved_profile": {"template": "x"},
+        }
+        args = argparse.Namespace(config_path=None, config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.SUCCESS
+        parsed = json.loads(capsys.readouterr().out)
+        assert parsed["valid"] is True
+        assert parsed["config"]["ai"]["api_key"] == "sk-t...3456"
+        assert "config_path" not in parsed["config"]
+        assert "config_path" in parsed
+        assert parsed["profile"] == "business"
+
+    @patch("autorename_pdf.load_yaml_config", return_value=None)
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_inspect_missing_file_json(self, mock_basedir, mock_load, capsys):
+        args = argparse.Namespace(config_path=None, config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        parsed = json.loads(capsys.readouterr().out)
+        assert parsed["valid"] is False
+        assert parsed["config"] is None
+        assert parsed["issues"][0]["field"] == "config_file"
+
+    def test_parser_accepts_inspect(self):
+        parser = build_parser()
+        ns = parser.parse_args(["config", "inspect", "--output", "json"])
+        assert ns.config_action == "inspect"
+
+    @patch("autorename_pdf.get_base_directory", return_value="/fake")
+    def test_inspect_requires_json_output(self, mock_basedir, capsys):
+        args = argparse.Namespace(config_path=None, config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "text")
+        assert exc_info.value.code == ExitCode.USAGE_ERROR
+
+    def test_inspect_unreadable_empty_file_json(self, tmp_path, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("", encoding="utf-8")
+        args = argparse.Namespace(config_path=str(cfg), config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        parsed = json.loads(capsys.readouterr().out)
+        assert parsed["valid"] is False
+        assert parsed["config"] is None
+        assert parsed["issues"][0]["field"] == "config_file"
+
+    def test_inspect_v1_schema_returns_json_exit_3(self, tmp_path, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("openai:\n  api_key: sk-legacy\n", encoding="utf-8")
+        args = argparse.Namespace(config_path=str(cfg), config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        parsed = json.loads(capsys.readouterr().out)
+        assert parsed["valid"] is False
+        assert parsed["config"] is None
+        assert parsed["issues"][0]["field"] == "config_file"
+        joined = parsed["issues"][0]["message"].lower()
+        assert "v1" in joined or "schema" in joined
+
+    def test_inspect_non_mapping_ai_returns_json_exit_3(self, tmp_path, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("ai: []\ncompany:\n  name: Acme\n", encoding="utf-8")
+        args = argparse.Namespace(config_path=str(cfg), config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        parsed = json.loads(capsys.readouterr().out)
+        assert parsed["valid"] is False
+        assert any(i["field"] == "ai" for i in parsed["issues"])
+
+    def test_inspect_show_projection_parity(self, tmp_path, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "ai:\n  provider: ollama\n  model: unused\ncompany:\n  name: Acme\n",
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(config_path=str(cfg), config_action="show", subcommand="config")
+        with pytest.raises(SystemExit):
+            _handle_config(args, "json")
+        show = json.loads(capsys.readouterr().out)
+        args.config_action = "inspect"
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        inspect = json.loads(capsys.readouterr().out)
+        assert exc_info.value.code in (ExitCode.SUCCESS, ExitCode.CONFIG_ERROR)
+        merged = dict(inspect["config"])
+        merged["profile"] = inspect["profile"]
+        merged["resolved_profile"] = inspect["resolved_profile"]
+        show_cmp = {k: v for k, v in show.items() if k != "config_path"}
+        assert merged == show_cmp
+        assert "config_path" not in inspect["config"]
+        assert "resolved_profile" not in inspect["config"]
+
+    def test_inspect_unknown_profile_issue_appears_once(self, tmp_path, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "ai:\n  provider: ollama\n  model: unused\n"
+            "company:\n  name: Acme\n"
+            "profile: missing-profile\n",
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(config_path=str(cfg), config_action="inspect", subcommand="config")
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_config(args, "json")
+        assert exc_info.value.code == ExitCode.CONFIG_ERROR
+        parsed = json.loads(capsys.readouterr().out)
+        profile_issues = [i for i in parsed["issues"] if i["field"] == "profile"]
+        assert len(profile_issues) == 1
+
+
+class TestLazyConfigImports:
+    _FORBIDDEN = (
+        "_ai_processing",
+        "_pdf_utils",
+        "_document_processing",
+        "instructor",
+        "openai",
+        "anthropic",
+        "pdfplumber",
+        "pypdfium2",
+        "dateparser",
+    )
+
+    def test_loading_cli_module_does_not_import_ai_stack(self):
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        forbidden = ",".join(self._FORBIDDEN)
+        script = (
+            "import importlib.util, os, sys\n"
+            f"root = {root!r}\n"
+            f"forbidden = {forbidden!r}.split(',')\n"
+            "sys.path.insert(0, root)\n"
+            "spec = importlib.util.spec_from_file_location("
+            "'autorename_pdf', os.path.join(root, 'autorename-pdf.py'))\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "sys.modules['autorename_pdf'] = mod\n"
+            "spec.loader.exec_module(mod)\n"
+            "loaded = [n for n in forbidden if n in sys.modules]\n"
+            "assert not loaded, loaded\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_config_inspect_process_does_not_import_ai_stack(self, tmp_path):
+        import subprocess
+        import textwrap
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(textwrap.dedent("""\
+            ai:
+              provider: ollama
+              model: unused
+            company:
+              name: Acme
+            """), encoding="utf-8")
+        script = textwrap.dedent(f"""\
+            import importlib.util, json, os, sys
+            root = {root!r}
+            sys.path.insert(0, root)
+            spec = importlib.util.spec_from_file_location(
+                'autorename_pdf', os.path.join(root, 'autorename-pdf.py'))
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules['autorename_pdf'] = mod
+            spec.loader.exec_module(mod)
+            sys.argv = ['autorename-pdf.py', 'config', 'inspect', '--output', 'json',
+                        '--config', {str(cfg)!r}]
+            try:
+                mod.main()
+            except SystemExit as exc:
+                if exc.code not in (0, 3):
+                    raise
+            forbidden = {list(self._FORBIDDEN)!r}
+            loaded = [n for n in forbidden if n in sys.modules]
+            assert not loaded, loaded
+            """)
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 # ---------------------------------------------------------------------------

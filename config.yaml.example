@@ -1,86 +1,72 @@
-# AutoRename-PDF Configuration (v2)
-# Copy this file to config.yaml and fill in your values.
+# AutoRename-PDF v2 — copy this file to config.yaml next to the EXE or CLI.
+# An LLM can configure this project from these comments. Do not invent keys.
+#
+# Default filenames (profile: business):
+#   20260906 ACME AP 12,13.pdf
+#   AP = incoming vendor bill (Accounts Payable)
+#   AR = invoice you sent (Accounts Receivable)
+#   Last token is the printed invoice total; omitted if none is printed.
+#
+# Required: ai.provider, ai.model, ai.api_key (empty only for ollama), company.name.
+# Recipes (GitHub only — not in the Windows ZIP):
+#   https://github.com/ptmrio/autorename-pdf/tree/main/examples
+#   academic.yaml, er-ar.yaml, ollama-offline.yaml, vision-cloud.yaml, invoice-id.yaml
+# One-run override: rename --profile academic
 
-# AI Provider Configuration
 ai:
-  provider: "openai"              # openai, anthropic, gemini, xai, ollama
-  model: "gpt-5.6-luna"          # Model name (provider-specific)
-  api_key: "your-api-key-here"   # Not needed for ollama
-  base_url: ""                    # Custom base URL (optional, for proxies)
-  temperature: 0.0                # Ignored for OpenAI/Anthropic native parse
-  max_retries: 2                  # Retry failed API calls
+  provider: "openai"              # openai | anthropic | gemini | xai | ollama
+  model: "gpt-5.6-luna"          # openai: gpt-5.6-luna / gpt-5-mini
+                                 # anthropic: claude-sonnet-4-6 / claude-haiku-4-5-20251001
+                                 # gemini: gemini-3.1-flash-lite / gemini-3-flash-preview
+                                 # xai: grok-4.20-beta-0309-non-reasoning
+                                 # ollama: qwen3:4b (local; no API key)
+  api_key: "your-api-key-here"   # Literal key, or "${OPENAI_API_KEY}" from .env beside this file
+                                 # ollama: use ""
+  base_url: ""                    # Optional proxy / custom OpenAI-compatible endpoint
+  temperature: 0.0               # Ignored for OpenAI/Anthropic native structured parse
+  max_retries: 2                  # Retry failed provider calls
 
-# --- API Key Options ---
-# You can store your API key in two ways:
-#
-# Method 1 — Directly in this file (simple, portable):
-#   api_key: "sk-your-actual-key-here"
-#
-# Method 2 — Via environment variable (secure, easy to switch):
-#   api_key: "${OPENAI_API_KEY}"
-#
-# With Method 2, set the variable in a .env file next to this config:
-#   OPENAI_API_KEY=sk-your-actual-key-here
-#   ANTHROPIC_API_KEY=sk-ant-your-key-here
-#
-# Any string value in this file can reference env vars with ${VAR_NAME}.
-# See .env.example for a template.
-
-# PDF Processing
 pdf:
-  max_pages: 3                    # Max pages to process per PDF
-  ocr: false                      # false / true / "auto" — PaddleOCR for scanned PDFs
-  vision: false                   # false / true / "auto" — send page images to LLM
-  text_quality_threshold: 0.3     # Triggers OCR/vision when set to "auto"
-  incoming_invoice: "AP"          # Accounts Payable — vendor bills you receive
-  outgoing_invoice: "AR"          # Accounts Receivable — invoices you send
-  # German DATEV-style codes (Eingangsrechnung / Ausgangsrechnung):
-  # incoming_invoice: "ER"
-  # outgoing_invoice: "AR"
+  max_pages: 3                    # Pages read per PDF (pdfplumber always runs)
+  ocr: false                      # false | true | "auto" — local PaddleOCR (install via setup.ps1)
+  vision: false                   # false | true | "auto" — send page images to a vision-capable model
+  text_quality_threshold: 0.3     # "auto" OCR/vision runs when text quality is below this
+  incoming_invoice: "AP"          # Incoming vendor bills. German: "ER" (Eingangsrechnung; examples/er-ar.yaml)
+  outgoing_invoice: "AR"          # Invoices you send. German Ausgangsrechnung also uses "AR"
 
-# PaddleOCR Configuration (optional, install via setup.ps1)
-paddleocr:
-  venv_path: ""                   # Auto-detected if empty
-  language: "en"                   # OCR language code (one language per instance)
-                                   #   "en" = English-only model (smaller, faster)
-                                   #   "de","fr","es",etc. = Latin model (all 59 Latin-script langs incl. English)
-                                   #   "ch" = Chinese model (also handles Japanese and English)
-                                   #   For European docs, use your country code -- it covers English too.
-  device: "auto"                  # "auto" (recommended), "cpu", or "gpu"
-  # detection_model: ""           # Detection model (default: PP-OCRv6_small_det)
-                                  #   Use "PP-OCRv5_server_det" for higher accuracy
-                                  #   on complex layouts (uses more RAM)
-  # det_limit_side_len: 736       # Max image side for detection (lower = less RAM)
-  # cpu_threads: 4                # CPU threads for OCR inference (default: 4)
+paddleocr:                        # Used only when pdf.ocr is true or "auto"
+  venv_path: ""                   # Empty = auto-detect the setup.ps1 venv
+  language: "en"                  # One code per instance: "en" (smaller) or "de"/"fr"/… (latin, includes English)
+  device: "auto"                 # auto | cpu | gpu
+  detection_model: ""            # Empty = PP-OCRv6_small_det. Accuracy: PP-OCRv5_server_det
+  det_limit_side_len: 736        # Lower = less RAM
+  cpu_threads: 4
 
-# Company Information
 company:
-  name: "Your Company Name"       # Your company name (prevents it being extracted as counterparty)
+  name: "Your Company Name"      # Your firm — excluded as counterparty on invoices
 
-# Output Settings
 output:
-  language: "English"             # Language for document type descriptions
-  date_format: "%Y%m%d"          # strftime format for filenames (YYYYMMDD)
+  language: "English"            # Language for non-invoice document_type labels (Letter, Contract, …)
+  date_format: "%Y%m%d"         # Filename date (strftime). Parsed dates are dd.mm.YYYY from the model.
 
-# Extraction profile; rename --profile overrides this for one run.
+# Built-ins: business (default) | academic
+# Academic filename: 20260101 Smith Nature Attention Is All You Need.pdf
+# Empty venue is omitted. Year-only publication dates become 01.01 of that year.
 profile: business
-# Overlay built-ins or declare custom profiles here; see README examples.
-# Three-component opt-out (both settings required):
+# profile: academic
+
+# Overlay or add profiles here. Duplicate YAML keys are errors.
+# Overlay merges into the built-in: scalars replace; new fields append; field: null deletes.
+# Templates are basenames without .pdf. Escape literal braces as {{ }}.
+# truncate_field = non-date field shortened first. Academic does not use company aliases.
+# Three-component opt-out (both keys required):
 #   profiles:
 #     business:
 #       template: "{document_date} {company_name} {document_type}"
 #       truncate_field: company_name
-# Optional invoice id, keeping the printed amount in description:
-#   profiles:
-#     business:
-#       fields:
-#         invoice_id:
-#           description: "Copy the printed invoice number exactly, without an Invoice or Rechnung label. Empty if absent or the document is not an invoice."
-#       template: "{document_date} {company_name} {document_type} {description} {invoice_id}"
-#       truncate_field: description
+# Invoice number while keeping the printed amount: examples/invoice-id.yaml on GitHub
 profiles: {}
 
-# Optional global instructions, appended verbatim to the profile prompt.
-# Business description already contains a printed invoice total.
-# Remove older amount-appending document_type instructions to avoid duplicates.
+# Appended verbatim to the selected profile prompt. Leave empty unless you need extra rules.
+# Do not tell the model to append amounts to document_type — that duplicates the default total.
 prompt_extension: ""

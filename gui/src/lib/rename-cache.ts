@@ -33,27 +33,33 @@ interface UndoLogV2 {
 
 /** Read existing undo log and migrate v1 (bare array) to v2 if needed. */
 async function readUndoLog(logPath: string): Promise<UndoLogV2> {
+  let text: string;
   try {
-    const raw = JSON.parse(await readTextFile(logPath));
-    if (Array.isArray(raw)) {
-      // v1 migration
-      return {
-        version: 2,
-        batches: raw.length > 0
-          ? [{
-              batch_id: 'migrated-v1',
-              timestamp: raw[0]?.timestamp ?? '',
-              source: 'cli',
-              undone: false,
-              files: raw,
-            }]
-          : [],
-      };
-    }
-    return raw as UndoLogV2;
+    text = await readTextFile(logPath);
   } catch {
     return { version: 2, batches: [] };
   }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error(`Malformed undo log: ${logPath}`);
+  }
+  if (Array.isArray(raw)) {
+    return {
+      version: 2,
+      batches: raw.length > 0
+        ? [{
+            batch_id: 'migrated-v1',
+            timestamp: raw[0]?.timestamp ?? '',
+            source: 'cli',
+            undone: false,
+            files: raw,
+          }]
+        : [],
+    };
+  }
+  return raw as UndoLogV2;
 }
 
 /**
@@ -106,6 +112,7 @@ export async function applyCachedRenames(
   }
 
   // Write undo log in v2 batch format (append to existing)
+  let undoRecorded = false;
   if (undoEntries.length > 0 && files.length > 0) {
     const logPath = joinPath(baseDir, UNDO_LOG_NAME);
     try {
@@ -118,8 +125,9 @@ export async function applyCachedRenames(
         files: undoEntries,
       });
       await writeTextFile(logPath, JSON.stringify(logData, null, 2));
-    } catch { /* undo log write failure is non-critical */ }
+      undoRecorded = true;
+    } catch { /* files are renamed; GUI must not offer Undo for an unrecorded batch */ }
   }
 
-  return { success: failed === 0, total, renamed, skipped, failed, files: results, dry_run: false, batch_id: batchId };
+  return { success: failed === 0, total, renamed, skipped, failed, files: results, dry_run: false, batch_id: renamed > 0 && undoRecorded ? batchId : null };
 }

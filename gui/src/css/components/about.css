@@ -73,7 +73,9 @@
   color: var(--color-primary-600, #dc2626);
   text-decoration: none;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  transition: text-decoration-color 0.15s ease;
   border: none;
   background: none;
   padding: 0;
@@ -84,8 +86,14 @@
   color: var(--color-primary-400, #f87171);
 }
 
+/* Support card sits on --bg-tertiary; primary-400 measures 2.90:1 there in dark.
+   primary-200 measures 6.03:1 (WCAG AA for the 13px link). */
+.dark .about-support-card .about-link {
+  color: var(--color-primary-200, #fdc4bd);
+}
+
 .about-link:hover {
-  opacity: 0.75;
+  text-decoration: underline;
 }
 
 .about-link svg {

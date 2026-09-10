@@ -52,7 +52,7 @@
    Z-index ensures focus ring appears above titlebar (z-index: 100).
    ============================================================================= */
 :focus-visible {
-  outline: 2px solid var(--color-primary-500);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
   position: relative;
   z-index: var(--focus-z, 101);

@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from _config_loader import (
     load_yaml_config, load_company_names, _detect_old_schema, _deep_merge,
     _migrate_extraction_config, _migrate_paddleocr_config, _migrate_paddleocr_languages,
-    _resolve_env_vars, _interpolate_env_vars,
+    _resolve_env_vars, _interpolate_env_vars, ConfigSchemaError,
 )
 
 
@@ -80,7 +80,7 @@ class TestLoadYamlConfig:
         with open(path, 'w') as f:
             yaml.dump(old_config, f)
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(ConfigSchemaError, match="v1"):
             load_yaml_config(path)
 
     def test_empty_file(self, tmp_path):

@@ -19,22 +19,11 @@ from typing import Optional
 
 from rich.console import Console
 
-from _config_loader import load_yaml_config
-from _ai_processing import extract_metadata
-from _pdf_utils import extract_content
-from _document_processing import (
-    harmonize_company_name,
-    parse_document_date,
-    render_filename,
-    rename_document,
-    undo_renames,
-    generate_batch_id,
-    list_undo_batches,
-    write_empty_batch,
-)
+from _config_loader import load_yaml_config, _print_migration_instructions
+import _config_loader
 from _utils import ExitCode, normalize_unicode
 from _version import VERSION
-from _profiles import build_metadata_model, resolve_profiles, select_profile
+from _profiles import build_metadata_model, select_profile
 
 
 def _configure_stdio_utf8() -> None:
@@ -356,6 +345,15 @@ def process_pdf(
         profile=profile_id,
     )
 
+    from _ai_processing import extract_metadata
+    from _pdf_utils import extract_content
+    from _document_processing import (
+        harmonize_company_name,
+        parse_document_date,
+        render_filename,
+        rename_document,
+    )
+
     try:
         # Step 1: Extract content
         extraction = extract_content(pdf_path, config)
@@ -587,8 +585,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser = subparsers.add_parser(
         "config",
         parents=[_shared],
-        help="Show or validate configuration",
-        description="Inspect and validate the configuration file.",
+        help="Show, validate, or inspect configuration",
+        description="Show, validate, or inspect the configuration file.",
     )
     config_sub = config_parser.add_subparsers(dest="config_action")
 
@@ -601,6 +599,11 @@ def build_parser() -> argparse.ArgumentParser:
         "validate",
         parents=[_shared],
         help="Validate configuration and report issues",
+    )
+    config_sub.add_parser(
+        "inspect",
+        parents=[_shared],
+        help="Show configuration and validation issues together (JSON)",
     )
 
     return parser
@@ -650,14 +653,33 @@ def _redact_config(config: dict) -> dict:
     """Deep-copy config with sensitive values redacted."""
     import copy
     redacted = copy.deepcopy(config)
-    ai = redacted.get("ai", {})
-    if ai.get("api_key"):
+    ai = redacted.get("ai")
+    if isinstance(ai, dict) and ai.get("api_key"):
         key = ai["api_key"]
-        if len(key) > 8:
+        if isinstance(key, str) and len(key) > 8:
             ai["api_key"] = key[:4] + "..." + key[-4:]
-        else:
+        elif key:
             ai["api_key"] = "***"
     return redacted
+
+
+_ALLOWED_PROVIDERS = ("openai", "anthropic", "gemini", "xai", "ollama")
+_PLACEHOLDER_API_KEYS = frozenset({"your-api-key-here", "your-api-key"})
+
+
+def _section_mapping(config: dict, name: str, issues: list) -> dict | None:
+    """Return a mapping section, or None after recording a field error."""
+    if name not in config or config[name] is None:
+        return {}
+    value = config[name]
+    if not isinstance(value, dict):
+        issues.append({
+            "field": name,
+            "level": "error",
+            "message": f"{name} must be a mapping, not {type(value).__name__}",
+        })
+        return None
+    return value
 
 
 def _validate_config(config: dict | None, config_path: str, profile_id: str | None = None) -> dict:
@@ -670,10 +692,19 @@ def _validate_config(config: dict | None, config_path: str, profile_id: str | No
             "level": "error",
             "message": f"Config file not found: {config_path}",
         })
-        return {"valid": False, "issues": issues}
+        return {"valid": False, "issues": issues, "profile": None, "resolved_profile": None}
+
+    ai = _section_mapping(config, "ai", issues)
+    company = _section_mapping(config, "company", issues)
+    pdf = _section_mapping(config, "pdf", issues)
+    if ai is None:
+        ai = {}
+    if company is None:
+        company = {}
+    if pdf is None:
+        pdf = {}
 
     # Check required fields
-    ai = config.get("ai", {})
     provider = ai.get("provider", "")
     api_key = ai.get("api_key", "")
 
@@ -683,12 +714,34 @@ def _validate_config(config: dict | None, config_path: str, profile_id: str | No
             "level": "error",
             "message": "AI provider not set",
         })
+    elif provider not in _ALLOWED_PROVIDERS:
+        issues.append({
+            "field": "ai.provider",
+            "level": "error",
+            "message": (
+                f"Unknown AI provider {provider!r}. "
+                f"Expected one of: {', '.join(_ALLOWED_PROVIDERS)}"
+            ),
+        })
 
     if provider != "ollama" and not api_key:
         issues.append({
             "field": "ai.api_key",
             "level": "error",
             "message": "API key required for non-ollama providers",
+        })
+    elif provider and provider != "ollama" and isinstance(api_key, str) and "${" in api_key:
+        issues.append({
+            "field": "ai.api_key",
+            "level": "error",
+            "message": "API key still contains an unexpanded ${VAR} reference",
+        })
+
+    if isinstance(api_key, str) and api_key.strip().lower() in _PLACEHOLDER_API_KEYS:
+        issues.append({
+            "field": "ai.api_key",
+            "level": "warning",
+            "message": "Placeholder API key; replace before calling a cloud provider",
         })
 
     if not ai.get("model"):
@@ -698,7 +751,7 @@ def _validate_config(config: dict | None, config_path: str, profile_id: str | No
             "message": "No model specified, will use provider default",
         })
 
-    company_name = config.get("company", {}).get("name", "")
+    company_name = company.get("name", "")
     if not company_name or company_name == "Your Company Name":
         issues.append({
             "field": "company.name",
@@ -713,31 +766,121 @@ def _validate_config(config: dict | None, config_path: str, profile_id: str | No
             "message": "unsupported top-level filename; use profiles.<id>.template",
         })
 
+    for flag in ("ocr", "vision"):
+        if flag in pdf:
+            val = pdf[flag]
+            if not isinstance(val, bool) and val != "auto":
+                issues.append({
+                    "field": f"pdf.{flag}",
+                    "level": "error",
+                    "message": f"pdf.{flag} must be true, false, or \"auto\"",
+                })
+    if "max_pages" in pdf:
+        pages = pdf["max_pages"]
+        if not isinstance(pages, int) or isinstance(pages, bool) or pages < 1:
+            issues.append({
+                "field": "pdf.max_pages",
+                "level": "error",
+                "message": "pdf.max_pages must be an integer >= 1",
+            })
+
     try:
-        resolve_profiles(config)
-        select_profile(config, profile_id)
+        if any(i["field"] in ("ai", "company", "pdf") and i["level"] == "error" for i in issues):
+            profile_id, resolved_profile = None, None
+        else:
+            profile_id, resolved_profile = select_profile(config, profile_id)
     except ValueError as exc:
         issues.append({
             "field": "profile",
             "level": "error",
             "message": str(exc),
         })
+        profile_id, resolved_profile = None, None
 
     valid = not any(i["level"] == "error" for i in issues)
-    return {"valid": valid, "issues": issues}
+    return {
+        "valid": valid,
+        "issues": issues,
+        "profile": profile_id,
+        "resolved_profile": resolved_profile,
+    }
+
+
+def _inspect_error_payload(config_path: str, message: str) -> dict:
+    return {
+        "config_path": os.path.abspath(config_path),
+        "valid": False,
+        "issues": [{
+            "field": "config_file",
+            "level": "error",
+            "message": message,
+        }],
+        "profile": None,
+        "resolved_profile": None,
+        "config": None,
+    }
+
+
+def _load_config_for_cli(config_path: str) -> dict | None:
+    try:
+        return load_yaml_config(config_path)
+    except _config_loader.ConfigSchemaError:
+        _print_migration_instructions()
+        sys.exit(1)
 
 
 def _handle_config(args: argparse.Namespace, output_format: str) -> None:
-    """Handle `config show` and `config validate` subcommands."""
+    """Handle `config show`, `config validate`, and `config inspect` subcommands."""
     base_dir = get_base_directory(getattr(args, "config_path", None))
     config_path = os.path.join(base_dir, "config.yaml")
 
     if getattr(args, "config_path", None):
         config_path = args.config_path
 
-    config = load_yaml_config(config_path)
-
     action = getattr(args, "config_action", None)
+
+    if action == "inspect":
+        if output_format != "json":
+            error_exit(
+                "usage_error",
+                "config inspect requires --output json",
+                exit_code=ExitCode.USAGE_ERROR,
+                output_format=output_format,
+            )
+        try:
+            config = load_yaml_config(config_path)
+        except _config_loader.ConfigSchemaError as exc:
+            print(json.dumps(
+                _inspect_error_payload(config_path, str(exc)),
+                indent=2, ensure_ascii=True,
+            ))
+            sys.exit(ExitCode.CONFIG_ERROR)
+        if config is None:
+            exists = os.path.exists(config_path)
+            message = (
+                f"Config file unreadable: {config_path}"
+                if exists
+                else f"Config file not found: {config_path}"
+            )
+            print(json.dumps(_inspect_error_payload(config_path, message), indent=2, ensure_ascii=True))
+            sys.exit(ExitCode.CONFIG_ERROR)
+
+        validation = _validate_config(config, config_path)
+        redacted = _redact_config(config)
+        redacted.pop("config_path", None)
+        redacted.pop("resolved_profile", None)
+        payload = {
+            "config_path": os.path.abspath(config_path),
+            "valid": validation["valid"],
+            "issues": validation["issues"],
+            "profile": validation.get("profile"),
+            "resolved_profile": validation.get("resolved_profile"),
+            "config": redacted,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=True))
+        sys.exit(ExitCode.SUCCESS if payload["valid"] else ExitCode.CONFIG_ERROR)
+
+    config = _load_config_for_cli(config_path)
 
     if action == "show":
         if config is None:
@@ -751,7 +894,6 @@ def _handle_config(args: argparse.Namespace, output_format: str) -> None:
         redacted = _redact_config(config)
         try:
             profile_id, resolved = select_profile(config)
-            resolve_profiles(config)
         except ValueError as exc:
             error_exit(
                 "config_error",
@@ -788,7 +930,7 @@ def _handle_config(args: argparse.Namespace, output_format: str) -> None:
         # No action specified — show help
         error_exit(
             "usage_error",
-            "Missing config action. Use: config show | config validate",
+            "Missing config action. Use: config show | config validate | config inspect",
             exit_code=ExitCode.USAGE_ERROR,
             output_format=output_format,
         )
@@ -800,6 +942,8 @@ def _handle_config(args: argparse.Namespace, output_format: str) -> None:
 
 def _handle_undo(args: argparse.Namespace, output_format: str) -> None:
     """Handle the undo subcommand."""
+    from _document_processing import undo_renames, list_undo_batches
+
     directory = getattr(args, "directory", None) or get_base_directory(getattr(args, "config_path", None))
     undo_log = os.path.join(directory, UNDO_LOG_NAME)
 
@@ -880,7 +1024,7 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
         config_path = args.config_path
 
     # Load config
-    config = load_yaml_config(config_path)
+    config = _load_config_for_cli(config_path)
     if not config:
         error_exit(
             "config_error",
@@ -950,6 +1094,8 @@ def _handle_rename(args: argparse.Namespace, output_format: str) -> None:
 
     # Determine undo log path (in the application base directory, next to config.yaml)
     undo_log_path = os.path.join(base_dir, UNDO_LOG_NAME) if not dry_run else None
+
+    from _document_processing import generate_batch_id, write_empty_batch
 
     # Generate batch ID for this rename operation
     batch_id = generate_batch_id() if not dry_run else None

@@ -23,7 +23,7 @@ export interface BatchResult {
   failed: number;
   files: FileResult[];
   dry_run: boolean;
-  batch_id?: string;
+  batch_id?: string | null;
 }
 
 export interface ErrorResult {
@@ -55,7 +55,26 @@ export interface ConfigValidation {
   issues: Array<{ field: string; level: string; message: string }>;
 }
 
+export interface ConfigIssue {
+  field: string;
+  level: string;
+  message: string;
+}
+
+export interface ConfigSnapshot {
+  config_path: string;
+  valid: boolean;
+  issues: ConfigIssue[];
+  profile: string | null;
+  resolved_profile: unknown;
+  config: Record<string, unknown> | null;
+}
+
 let resolvedConfigPathPromise: Promise<string> | null = null;
+let inspectGeneration = 0;
+let inspectCache: { path: string; snapshot: ConfigSnapshot } | null = null;
+let inspectInflight: { path: string; generation: number; promise: Promise<ConfigSnapshot> } | null = null;
+
 const SIDECAR_OPTIONS = {
   encoding: 'utf-8',
   env: {
@@ -102,12 +121,23 @@ export async function renamePdfs(
   if (options.ocr) args.push('--ocr');
 
   const command = Command.sidecar('autorename-pdf-cli', await withConfigArg(args), SIDECAR_OPTIONS);
-
-  command.stderr.on('data', (line) => {
-    onProgress?.(line.trim());
+  let stdout = '';
+  let stderr = '';
+  command.stdout.on('data', (chunk) => {
+    stdout += String(chunk);
   });
-
-  const output = await command.execute();
+  command.stderr.on('data', (line) => {
+    const text = String(line);
+    stderr += text.endsWith('\n') ? text : `${text}\n`;
+    onProgress?.(text.trim());
+  });
+  const output = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    command.on('error', (err) => reject(new Error(String(err))));
+    command.on('close', (event) => {
+      resolve({ code: event.code, stdout, stderr });
+    });
+    void command.spawn().catch(reject);
+  });
 
   if (output.code !== 0 && !output.stdout.trim()) {
     const stderr = output.stderr || '';
@@ -145,12 +175,65 @@ export async function undoRename(batchId?: string): Promise<UndoResult | ErrorRe
   return JSON.parse(output.stdout) as UndoResult | ErrorResult;
 }
 
+export function invalidateConfigSnapshot(): void {
+  inspectGeneration += 1;
+  inspectCache = null;
+  inspectInflight = null;
+}
+
+export async function inspectConfig(options: { force?: boolean } = {}): Promise<ConfigSnapshot> {
+  const path = await getResolvedConfigPath();
+  if (options.force) {
+    inspectGeneration += 1;
+    inspectCache = null;
+    inspectInflight = null;
+  }
+  if (inspectCache && inspectCache.path === path && !options.force) {
+    return inspectCache.snapshot;
+  }
+  if (inspectInflight && inspectInflight.path === path) {
+    return inspectInflight.promise;
+  }
+
+  const generation = inspectGeneration;
+  const promise = (async () => {
+    const command = Command.sidecar('autorename-pdf-cli', await withConfigArg([
+      'config', 'inspect', '--output', 'json',
+    ]), SIDECAR_OPTIONS);
+    const output = await command.execute();
+    if (!output.stdout.trim()) {
+      throw new Error(output.stderr || `Process exited with code ${output.code}`);
+    }
+    const snapshot = JSON.parse(output.stdout) as ConfigSnapshot;
+    if (generation !== inspectGeneration) {
+      return inspectConfig();
+    }
+    inspectCache = { path, snapshot };
+    return snapshot;
+  })();
+
+  inspectInflight = { path, generation, promise };
+
+  try {
+    return await promise;
+  } catch (err) {
+    if (inspectInflight?.promise === promise) {
+      inspectInflight = null;
+    }
+    throw err;
+  } finally {
+    if (inspectInflight?.promise === promise) {
+      inspectInflight = null;
+    }
+  }
+}
+
 export async function getConfig(): Promise<Record<string, unknown>> {
-  const command = Command.sidecar('autorename-pdf-cli', await withConfigArg([
-    'config', 'show', '--output', 'json',
-  ]), SIDECAR_OPTIONS);
-  const output = await command.execute();
-  return JSON.parse(output.stdout);
+  const snapshot = await inspectConfig();
+  if (snapshot.config == null) {
+    throw new Error(`Config file not found: ${snapshot.config_path}`);
+  }
+  return snapshot.config;
 }
 
 export async function getConfigPath(): Promise<string | null> {
@@ -162,9 +245,6 @@ export async function getUndoLogDir(): Promise<string> {
 }
 
 export async function validateConfig(): Promise<ConfigValidation> {
-  const command = Command.sidecar('autorename-pdf-cli', await withConfigArg([
-    'config', 'validate', '--output', 'json',
-  ]), SIDECAR_OPTIONS);
-  const output = await command.execute();
-  return JSON.parse(output.stdout);
+  const snapshot = await inspectConfig();
+  return { valid: snapshot.valid, issues: snapshot.issues };
 }

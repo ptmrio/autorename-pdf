@@ -7,36 +7,42 @@ export function setupDragDrop(
 ): () => void {
   let unlisten: (() => void) | undefined;
 
-  getCurrentWebview().onDragDropEvent(async (event) => {
-    switch (event.payload.type) {
-      case 'over':
-        onHover(true);
-        break;
-      case 'drop': {
-        onHover(false);
-        try {
-          const dropped = event.payload.paths;
-          const pdfFiles = dropped.filter((p: string) => p.toLowerCase().endsWith('.pdf'));
-          const nonPdf = dropped.filter((p: string) => !p.toLowerCase().endsWith('.pdf'));
+  try {
+    void getCurrentWebview().onDragDropEvent(async (event) => {
+      switch (event.payload.type) {
+        case 'over':
+          onHover(true);
+          break;
+        case 'drop': {
+          onHover(false);
+          try {
+            const dropped = event.payload.paths;
+            const pdfFiles = dropped.filter((p: string) => p.toLowerCase().endsWith('.pdf'));
+            const nonPdf = dropped.filter((p: string) => !p.toLowerCase().endsWith('.pdf'));
 
-          const expanded = await Promise.all(
-            nonPdf.map(async (p: string) => {
-              try { return await expandFolder(p); }
-              catch { return [] as string[]; }
-            }),
-          );
+            const expanded = await Promise.all(
+              nonPdf.map(async (p: string) => {
+                try { return await expandFolder(p); }
+                catch { return [] as string[]; }
+              }),
+            );
 
-          onDrop([...pdfFiles, ...expanded.flat()]);
-        } catch {
-          onDrop([]);
+            onDrop([...pdfFiles, ...expanded.flat()]);
+          } catch {
+            onDrop([]);
+          }
+          break;
         }
-        break;
+        case 'leave':
+          onHover(false);
+          break;
       }
-      case 'leave':
-        onHover(false);
-        break;
-    }
-  }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch(() => {
+      /* Vite without Tauri */
+    });
+  } catch {
+    /* jsdom / Vite without Tauri */
+  }
 
   return () => unlisten?.();
 }
