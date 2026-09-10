@@ -65,7 +65,7 @@ Helpers (do not commit `_raw/` or the throwaway capture config):
 
 - Invoice codes **AP/AR** (not ER)
 - Model **gpt-5.6-luna** (or whatever `_version.py` / `config.yaml.example` currently ship)
-- Portable folder name `AutoRename-PDF-Portable-{version}` from `_version.py` (today: 3.1.0)
+- Portable folder name `AutoRename-PDF-Portable-{version}` from `_version.py` (today: 3.2.0)
 - Light GUI theme
 - Files view after a real **Preview names** then **Rename** (two disposable text PDFs)
 - CLI: PowerShell in that portable folder with `.\autorename-pdf-cli.exe rename --dry-run …` (flags **after** `rename`)
